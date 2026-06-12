@@ -34,10 +34,11 @@ tidy/extract, the student & parent timelines, in‑app follow-ups, Granola impor
 ## 1. Create a Supabase project
 
 1. Create a project at [supabase.com](https://supabase.com).
-2. Open **SQL Editor**, paste the contents of
-   `supabase/migrations/0001_init.sql`, and run it. This creates all tables,
-   row-level security policies, and a trigger that provisions an `app_users`
-   row (plus default settings) whenever someone signs up.
+2. Open **SQL Editor** and run **every** file in `supabase/migrations/` in
+   order — `0001_init.sql` first (tables, RLS, the signup trigger), then
+   `0002_teachers_and_student_fields.sql` (School/Courses on students, the
+   teachers directory, and the teacher tag on conversations). Run each as its
+   own query.
 3. **Auth:** under **Authentication → Providers → Email**, keep email enabled.
    For a single-user internal tool the simplest setup is to turn **"Confirm
    email" off** so sign-up logs you straight in. (Leave it on if you'd rather
@@ -80,10 +81,11 @@ follow-up flows work immediately.
 
 ## Daily flow
 
-1. **Roster import** — upload a CSV (one row per parent–student pair). Columns
-   are auto-mapped; siblings repeat the parent, a second parent repeats the
-   student. Re-importing is idempotent (students match on MV ref → name+level;
-   parents match on phone → name).
+1. **Roster import** — upload an Excel (`.xlsx`) or CSV file on the **Students**
+   or **Teachers** tab. Columns are auto-mapped (Name, Grade/Level, School,
+   Courses for students; Name for teachers). Re-importing is idempotent —
+   students match on ref → name+grade+school, teachers on name; existing rows
+   are skipped. Handles thousands of rows.
 2. **Log conversation** — pick student/parent, set channel + time, type or
    dictate notes, hit **Tidy & extract**. The AI returns a clean summary,
    action items, and an optional suggested follow-up. Review, edit, save. Raw

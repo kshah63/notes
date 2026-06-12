@@ -11,6 +11,8 @@ export function StudentEditor({ student }: { student: Student }) {
   const [open, setOpen] = useState(false);
   const [fullName, setFullName] = useState(student.full_name);
   const [level, setLevel] = useState(student.level ?? "");
+  const [school, setSchool] = useState(student.school ?? "");
+  const [courses, setCourses] = useState(student.courses ?? "");
   const [ref, setRef] = useState(student.external_ref ?? "");
   const [notes, setNotes] = useState(student.notes ?? "");
   const [error, setError] = useState<string | null>(null);
@@ -23,6 +25,8 @@ export function StudentEditor({ student }: { student: Student }) {
         id: student.id,
         full_name: fullName,
         level,
+        school,
+        courses,
         external_ref: ref,
         notes,
       });
@@ -48,17 +52,28 @@ export function StudentEditor({ student }: { student: Student }) {
 
   return (
     <div className="mt-3 w-full space-y-3 rounded-lg border border-ink-200 bg-ink-50 p-4">
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Name">
           <Input value={fullName} onChange={(e) => setFullName(e.target.value)} />
         </Field>
-        <Field label="Level">
+        <Field label="Grade / Level">
           <Input value={level} onChange={(e) => setLevel(e.target.value)} />
         </Field>
-        <Field label="MV ref">
+        <Field label="School">
+          <Input value={school} onChange={(e) => setSchool(e.target.value)} />
+        </Field>
+        <Field label="Ref (optional)">
           <Input value={ref} onChange={(e) => setRef(e.target.value)} />
         </Field>
       </div>
+      <Field label="Courses">
+        <Textarea
+          rows={2}
+          value={courses}
+          onChange={(e) => setCourses(e.target.value)}
+          placeholder="One per line, or comma-separated"
+        />
+      </Field>
       <Field label="Standing notes">
         <Textarea
           rows={3}

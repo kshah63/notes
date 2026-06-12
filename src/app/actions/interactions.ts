@@ -37,6 +37,7 @@ export async function tidyAndExtractAction(input: {
 export interface LogInteractionInput {
   student_id?: string | null;
   parent_id?: string | null;
+  teacher_id?: string | null;
   channel: Channel;
   occurred_at: string; // ISO
   raw_notes?: string | null;
@@ -67,6 +68,7 @@ export async function logInteraction(
     .insert({
       student_id: input.student_id || null,
       parent_id: input.parent_id || null,
+      teacher_id: input.teacher_id || null,
       channel: input.channel,
       occurred_at: input.occurred_at,
       raw_notes: input.raw_notes?.trim() || null,
@@ -116,6 +118,7 @@ export async function updateInteraction(
     occurred_at?: string;
     student_id?: string | null;
     parent_id?: string | null;
+    teacher_id?: string | null;
   },
 ): Promise<{ ok: boolean; error?: string }> {
   await requireUser();
@@ -129,6 +132,7 @@ export async function updateInteraction(
   if (input.occurred_at !== undefined) patch.occurred_at = input.occurred_at;
   if (input.student_id !== undefined) patch.student_id = input.student_id || null;
   if (input.parent_id !== undefined) patch.parent_id = input.parent_id || null;
+  if (input.teacher_id !== undefined) patch.teacher_id = input.teacher_id || null;
 
   const { error } = await supabase.from("interactions").update(patch).eq("id", id);
   if (error) return { ok: false, error: error.message };

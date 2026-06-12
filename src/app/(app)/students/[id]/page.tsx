@@ -42,7 +42,7 @@ export default async function StudentPage({
       <PageHeader
         title={student.full_name}
         subtitle={
-          [student.level, student.external_ref].filter(Boolean).join(" · ") ||
+          [student.level, student.school].filter(Boolean).join(" · ") ||
           undefined
         }
         actions={
@@ -58,15 +58,28 @@ export default async function StudentPage({
             <h2 className="text-sm font-semibold text-ink-700">Student</h2>
             <StudentEditor student={student} />
           </div>
-          {student.notes ? (
-            <p className="mt-2 whitespace-pre-wrap text-sm text-ink-700">
-              {student.notes}
-            </p>
-          ) : (
-            <p className="mt-2 text-sm italic text-ink-400">
-              No standing notes.
-            </p>
+          {student.courses && (
+            <div className="mt-2">
+              <span className="text-xs font-medium uppercase tracking-wide text-ink-500">
+                Courses
+              </span>
+              <p className="whitespace-pre-wrap text-sm text-ink-700">
+                {student.courses}
+              </p>
+            </div>
           )}
+          <div className="mt-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-ink-500">
+              Standing notes
+            </span>
+            {student.notes ? (
+              <p className="whitespace-pre-wrap text-sm text-ink-700">
+                {student.notes}
+              </p>
+            ) : (
+              <p className="text-sm italic text-ink-400">None.</p>
+            )}
+          </div>
         </Card>
 
         <Card className="p-4">

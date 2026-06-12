@@ -15,10 +15,12 @@ export function InteractionCard({
   interaction,
   showStudent = true,
   showParent = true,
+  showTeacher = true,
 }: {
   interaction: InteractionWithDetails;
   showStudent?: boolean;
   showParent?: boolean;
+  showTeacher?: boolean;
 }) {
   const [showRaw, setShowRaw] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -76,33 +78,42 @@ export function InteractionCard({
         </div>
       </div>
 
-      {(showStudent || showParent) &&
-        (interaction.student || interaction.parent) && (
-          <div className="mb-2 flex flex-wrap gap-x-3 gap-y-1 text-sm">
-            {showStudent && interaction.student && (
-              <Link
-                href={`/students/${interaction.student.id}`}
-                className="font-medium text-accent-700 hover:underline"
-              >
-                {interaction.student.full_name}
-                {interaction.student.level
-                  ? ` · ${interaction.student.level}`
-                  : ""}
-              </Link>
-            )}
-            {showParent && interaction.parent && (
-              <Link
-                href={`/parents/${interaction.parent.id}`}
-                className="text-ink-600 hover:underline"
-              >
-                {interaction.parent.full_name}
-                {interaction.parent.relationship
-                  ? ` (${interaction.parent.relationship})`
-                  : ""}
-              </Link>
-            )}
-          </div>
-        )}
+      {((showStudent && interaction.student) ||
+        (showParent && interaction.parent) ||
+        (showTeacher && interaction.teacher)) && (
+        <div className="mb-2 flex flex-wrap gap-x-3 gap-y-1 text-sm">
+          {showStudent && interaction.student && (
+            <Link
+              href={`/students/${interaction.student.id}`}
+              className="font-medium text-accent-700 hover:underline"
+            >
+              {interaction.student.full_name}
+              {interaction.student.level
+                ? ` · ${interaction.student.level}`
+                : ""}
+            </Link>
+          )}
+          {showParent && interaction.parent && (
+            <Link
+              href={`/parents/${interaction.parent.id}`}
+              className="text-ink-600 hover:underline"
+            >
+              {interaction.parent.full_name}
+              {interaction.parent.relationship
+                ? ` (${interaction.parent.relationship})`
+                : ""}
+            </Link>
+          )}
+          {showTeacher && interaction.teacher && (
+            <Link
+              href={`/teachers/${interaction.teacher.id}`}
+              className="text-ink-500 hover:underline"
+            >
+              ✦ {interaction.teacher.full_name}
+            </Link>
+          )}
+        </div>
+      )}
 
       {editing ? (
         <div className="space-y-2">

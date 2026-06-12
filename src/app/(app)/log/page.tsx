@@ -1,6 +1,7 @@
 import {
   getStudents,
   getParents,
+  getTeachers,
   getStudentParentLinks,
   getSettings,
 } from "@/lib/queries";
@@ -13,12 +14,13 @@ export const dynamic = "force-dynamic";
 export default async function LogPage({
   searchParams,
 }: {
-  searchParams: Promise<{ student?: string; parent?: string }>;
+  searchParams: Promise<{ student?: string; parent?: string; teacher?: string }>;
 }) {
   const sp = await searchParams;
-  const [students, parents, links, settings] = await Promise.all([
+  const [students, parents, teachers, links, settings] = await Promise.all([
     getStudents(),
     getParents(),
+    getTeachers(),
     getStudentParentLinks(),
     getSettings(),
   ]);
@@ -51,10 +53,12 @@ export default async function LogPage({
       <LogConversationForm
         students={students}
         parents={parents}
+        teachers={teachers}
         links={links}
         defaultChannel={settings?.default_channel ?? "call"}
         initialStudentId={sp.student}
         initialParentId={sp.parent}
+        initialTeacherId={sp.teacher}
       />
     </div>
   );

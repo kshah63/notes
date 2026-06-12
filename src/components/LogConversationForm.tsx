@@ -12,7 +12,7 @@ import {
   Badge,
 } from "./ui";
 import { CHANNELS, CHANNEL_LABELS } from "@/lib/types";
-import type { Channel, Student, Parent, TidyResult } from "@/lib/types";
+import type { Channel, Student, Parent, Teacher, TidyResult } from "@/lib/types";
 import { toDatetimeLocalValue } from "@/lib/dates";
 import { tidyAndExtractAction, logInteraction } from "@/app/actions/interactions";
 import { useDictation } from "@/lib/useDictation";
@@ -20,18 +20,22 @@ import { useDictation } from "@/lib/useDictation";
 export function LogConversationForm({
   students,
   parents,
+  teachers,
   links,
   defaultChannel,
   initialStudentId,
   initialParentId,
+  initialTeacherId,
   prefill,
 }: {
   students: Student[];
   parents: Parent[];
+  teachers: Teacher[];
   links: { student_id: string; parent_id: string }[];
   defaultChannel: Channel;
   initialStudentId?: string;
   initialParentId?: string;
+  initialTeacherId?: string;
   // Optional prefill (used by the Granola paste import flow).
   prefill?: {
     rawNotes?: string;
@@ -46,6 +50,7 @@ export function LogConversationForm({
 
   const [studentId, setStudentId] = useState(initialStudentId ?? "");
   const [parentId, setParentId] = useState(initialParentId ?? "");
+  const [teacherId, setTeacherId] = useState(initialTeacherId ?? "");
   const [channel, setChannel] = useState<Channel>(defaultChannel);
   const [occurredAt, setOccurredAt] = useState(toDatetimeLocalValue());
   const [rawNotes, setRawNotes] = useState(prefill?.rawNotes ?? "");
@@ -130,6 +135,7 @@ export function LogConversationForm({
       const res = await logInteraction({
         student_id: studentId || null,
         parent_id: parentId || null,
+        teacher_id: teacherId || null,
         channel,
         occurred_at: new Date(occurredAt).toISOString(),
         raw_notes: rawNotes,
@@ -185,6 +191,19 @@ export function LogConversationForm({
                 <option key={p.id} value={p.id}>
                   {p.full_name}
                   {p.relationship ? ` (${p.relationship})` : ""}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Teacher">
+            <Select
+              value={teacherId}
+              onChange={(e) => setTeacherId(e.target.value)}
+            >
+              <option value="">— none —</option>
+              {teachers.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.full_name}
                 </option>
               ))}
             </Select>

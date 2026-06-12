@@ -2,6 +2,7 @@ import { createClient } from "./supabase/server";
 import type {
   Student,
   Parent,
+  Teacher,
   InteractionWithDetails,
   FollowUp,
   AppSettings,
@@ -12,6 +13,7 @@ const INTERACTION_SELECT = `
   *,
   student:students(id, full_name, level),
   parent:parents(id, full_name, relationship),
+  teacher:teachers(id, full_name),
   action_items(*),
   follow_ups(*)
 `;
@@ -36,6 +38,39 @@ export async function getParents(): Promise<Parent[]> {
   const supabase = await createClient();
   const { data } = await supabase.from("parents").select("*").order("full_name");
   return (data as Parent[]) ?? [];
+}
+
+export async function getTeachers(search?: string): Promise<Teacher[]> {
+  const supabase = await createClient();
+  let query = supabase.from("teachers").select("*").order("full_name");
+  if (search?.trim()) query = query.ilike("full_name", `%${search.trim()}%`);
+  const { data } = await query;
+  return (data as Teacher[]) ?? [];
+}
+
+export async function getTeacher(id: string): Promise<Teacher | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("teachers")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  return (data as Teacher) ?? null;
+}
+
+export async function getTeacherTimeline(
+  teacherId: string,
+  filters: TimelineFilters = {},
+): Promise<InteractionWithDetails[]> {
+  const supabase = await createClient();
+  let query = supabase
+    .from("interactions")
+    .select(INTERACTION_SELECT)
+    .eq("teacher_id", teacherId)
+    .order("occurred_at", { ascending: false });
+  query = applyFilters(query, filters);
+  const { data } = await query;
+  return (data as unknown as InteractionWithDetails[]) ?? [];
 }
 
 export async function getStudent(id: string): Promise<Student | null> {

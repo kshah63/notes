@@ -5,7 +5,7 @@ import {
   listGranolaNotesAction,
   previewGranolaNoteAction,
 } from "@/app/actions/interactions";
-import type { Student, Parent, Channel, TidyResult } from "@/lib/types";
+import type { Student, Parent, Teacher, Channel, TidyResult } from "@/lib/types";
 import { Button, Card, Badge, EmptyState } from "./ui";
 import { LogConversationForm } from "./LogConversationForm";
 import { formatDate } from "@/lib/dates";
@@ -30,6 +30,7 @@ interface Preview {
 export function GranolaImport({
   students,
   parents,
+  teachers,
   links,
   defaultChannel,
   apiConfigured,
@@ -37,6 +38,7 @@ export function GranolaImport({
 }: {
   students: Student[];
   parents: Parent[];
+  teachers: Teacher[];
   links: { student_id: string; parent_id: string }[];
   defaultChannel: Channel;
   apiConfigured: boolean;
@@ -65,6 +67,7 @@ export function GranolaImport({
           <LogConversationForm
             students={students}
             parents={parents}
+            teachers={teachers}
             links={links}
             defaultChannel={defaultChannel}
             prefill={{ source: "granola" }}
@@ -74,6 +77,7 @@ export function GranolaImport({
         <BrowsePath
           students={students}
           parents={parents}
+          teachers={teachers}
           links={links}
           defaultChannel={defaultChannel}
           apiConfigured={apiConfigured}
@@ -87,11 +91,13 @@ function BrowsePath({
   students,
   parents,
   links,
+  teachers,
   defaultChannel,
   apiConfigured,
 }: {
   students: Student[];
   parents: Parent[];
+  teachers: Teacher[];
   links: { student_id: string; parent_id: string }[];
   defaultChannel: Channel;
   apiConfigured: boolean;
@@ -159,6 +165,7 @@ function BrowsePath({
         <LogConversationForm
           students={students}
           parents={parents}
+          teachers={teachers}
           links={links}
           defaultChannel={defaultChannel}
           prefill={{

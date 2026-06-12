@@ -33,9 +33,20 @@ export interface Student {
   id: string;
   owner_id: string;
   full_name: string;
-  level: string | null;
+  level: string | null; // "Grade 11", "University", etc.
+  school: string | null;
+  courses: string | null;
   external_ref: string | null;
   notes: string | null;
+  created_at: string;
+}
+
+export interface Teacher {
+  id: string;
+  owner_id: string;
+  full_name: string;
+  code: string | null;
+  position: string | null;
   created_at: string;
 }
 
@@ -55,6 +66,7 @@ export interface Interaction {
   owner_id: string;
   student_id: string | null;
   parent_id: string | null;
+  teacher_id: string | null;
   occurred_at: string;
   channel: Channel;
   raw_notes: string | null;
@@ -110,6 +122,7 @@ export interface TidyResult {
 export interface InteractionWithDetails extends Interaction {
   student: Pick<Student, "id" | "full_name" | "level"> | null;
   parent: Pick<Parent, "id" | "full_name" | "relationship"> | null;
+  teacher: Pick<Teacher, "id" | "full_name"> | null;
   action_items: ActionItem[];
   follow_ups: FollowUp[];
 }

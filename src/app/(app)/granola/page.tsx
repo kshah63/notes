@@ -1,6 +1,7 @@
 import {
   getStudents,
   getParents,
+  getTeachers,
   getStudentParentLinks,
   getSettings,
 } from "@/lib/queries";
@@ -11,9 +12,10 @@ import { GranolaImport } from "@/components/GranolaImport";
 export const dynamic = "force-dynamic";
 
 export default async function GranolaPage() {
-  const [students, parents, links, settings] = await Promise.all([
+  const [students, parents, teachers, links, settings] = await Promise.all([
     getStudents(),
     getParents(),
+    getTeachers(),
     getStudentParentLinks(),
     getSettings(),
   ]);
@@ -40,6 +42,7 @@ export default async function GranolaPage() {
       <GranolaImport
         students={students}
         parents={parents}
+        teachers={teachers}
         links={links}
         defaultChannel={settings?.default_channel ?? "in_person"}
         apiConfigured={isGranolaApiConfigured()}

@@ -1,38 +1,16 @@
 "use server";
 
-import Papa from "papaparse";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth";
 import { normalizeToE164 } from "@/lib/phone";
-import type { PreferredChannel, Student, Parent } from "@/lib/types";
-
-export type RosterField =
-  | "student_name"
-  | "student_level"
-  | "student_ref"
-  | "parent_name"
-  | "parent_relationship"
-  | "parent_phone"
-  | "parent_email";
-
-export interface RosterMapping {
-  student_name: string;
-  student_level?: string;
-  student_ref?: string;
-  parent_name?: string;
-  parent_relationship?: string;
-  parent_phone?: string;
-  parent_email?: string;
-}
+import type { PreferredChannel } from "@/lib/types";
 
 export interface ImportSummary {
-  studentsCreated: number;
-  studentsMatched: number;
-  parentsCreated: number;
-  parentsMatched: number;
-  linksCreated: number;
-  rowsSkipped: number;
+  created: number;
+  skippedExisting: number;
+  skippedBlank: number;
+  total: number;
 }
 
 export interface ImportResult {
@@ -41,177 +19,196 @@ export interface ImportResult {
   error?: string;
 }
 
-function cell(
-  row: Record<string, string>,
-  mapping: RosterMapping,
-  field: RosterField,
-): string {
-  const col = mapping[field];
-  if (!col) return "";
-  return (row[col] ?? "").trim();
+const CHUNK = 500;
+
+function norm(s: string | null | undefined): string {
+  return (s ?? "").trim().toLowerCase();
 }
 
-// Import students, parents, and their links from one CSV (§4). One row per
-// parent–student pair. Idempotent: students match on external_ref (else
-// name+level), parents match on phone_e164 (else name); re-running won't
-// duplicate.
-export async function importRosterCsv(
-  csvText: string,
-  mapping: RosterMapping,
+// Page through every row of a table (PostgREST caps each request ~1000 rows),
+// so re-imports dedupe against the full existing set.
+async function fetchAllKeys(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  table: "students" | "teachers",
+  columns: string,
+): Promise<Record<string, unknown>[]> {
+  const pageSize = 1000;
+  let from = 0;
+  const all: Record<string, unknown>[] = [];
+  for (;;) {
+    const { data, error } = await supabase
+      .from(table)
+      .select(columns)
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(error.message);
+    const rows = (data as unknown as Record<string, unknown>[]) ?? [];
+    all.push(...rows);
+    if (rows.length < pageSize) break;
+    from += pageSize;
+  }
+  return all;
+}
+
+// ---- Students bulk import (§4) --------------------------------------------
+
+export interface StudentImportRecord {
+  full_name: string;
+  level?: string | null;
+  school?: string | null;
+  courses?: string | null;
+  external_ref?: string | null;
+}
+
+export async function importStudents(
+  records: StudentImportRecord[],
 ): Promise<ImportResult> {
   await requireUser();
   const supabase = await createClient();
 
-  if (!mapping.student_name) {
-    return { ok: false, error: "A column must be mapped to student name." };
-  }
-
-  const parsed = Papa.parse<Record<string, string>>(csvText, {
-    header: true,
-    skipEmptyLines: "greedy",
-  });
-  if (parsed.errors.length > 0) {
-    const first = parsed.errors[0];
-    return { ok: false, error: `CSV parse error: ${first.message} (row ${first.row})` };
-  }
-
   const summary: ImportSummary = {
-    studentsCreated: 0,
-    studentsMatched: 0,
-    parentsCreated: 0,
-    parentsMatched: 0,
-    linksCreated: 0,
-    rowsSkipped: 0,
+    created: 0,
+    skippedExisting: 0,
+    skippedBlank: 0,
+    total: records.length,
   };
 
-  // Within-import caches to dedupe repeated students/parents across rows.
-  const studentCache = new Map<string, Student>();
-  const parentCache = new Map<string, Parent>();
-  const linkSeen = new Set<string>();
-
-  for (const row of parsed.data) {
-    const studentName = cell(row, mapping, "student_name");
-    if (!studentName) {
-      summary.rowsSkipped++;
-      continue;
-    }
-    const studentLevel = cell(row, mapping, "student_level") || null;
-    const studentRef = cell(row, mapping, "student_ref") || null;
-
-    const parentName = cell(row, mapping, "parent_name");
-    const parentRelationship = cell(row, mapping, "parent_relationship") || null;
-    const parentPhoneRaw = cell(row, mapping, "parent_phone");
-    const parentEmail = cell(row, mapping, "parent_email") || null;
-    const parentPhone = normalizeToE164(parentPhoneRaw);
-
-    // --- Resolve student ---
-    const studentKey = studentRef
-      ? `ref:${studentRef.toLowerCase()}`
-      : `nl:${studentName.toLowerCase()}|${(studentLevel ?? "").toLowerCase()}`;
-
-    let student = studentCache.get(studentKey);
-    if (!student) {
-      let query = supabase.from("students").select("*").limit(1);
-      if (studentRef) {
-        query = query.eq("external_ref", studentRef);
-      } else {
-        query = query.eq("full_name", studentName);
-        // `.is` matches NULL; `.eq` matches a concrete level.
-        query =
-          studentLevel === null
-            ? query.is("level", null)
-            : query.eq("level", studentLevel);
-      }
-      const { data: existing, error } = await query.maybeSingle();
-      if (error) return { ok: false, error: `Student lookup failed: ${error.message}` };
-
-      if (existing) {
-        student = existing as Student;
-        summary.studentsMatched++;
-      } else {
-        const { data: inserted, error: insErr } = await supabase
-          .from("students")
-          .insert({
-            full_name: studentName,
-            level: studentLevel,
-            external_ref: studentRef,
-          })
-          .select("*")
-          .single();
-        if (insErr) return { ok: false, error: `Student insert failed: ${insErr.message}` };
-        student = inserted as Student;
-        summary.studentsCreated++;
-      }
-      studentCache.set(studentKey, student);
+  try {
+    const existing = await fetchAllKeys(
+      supabase,
+      "students",
+      "external_ref, full_name, level, school",
+    );
+    const seen = new Set<string>();
+    for (const r of existing) {
+      seen.add(studentKey(r));
     }
 
-    // --- Resolve parent (optional on a row) ---
-    let parent: Parent | undefined;
-    if (parentName || parentPhone) {
-      const parentKey = parentPhone
-        ? `ph:${parentPhone}`
-        : `nm:${parentName.toLowerCase()}`;
-      parent = parentCache.get(parentKey);
-      if (!parent) {
-        let pQuery = supabase.from("parents").select("*").limit(1);
-        pQuery = parentPhone
-          ? pQuery.eq("phone_e164", parentPhone)
-          : pQuery.eq("full_name", parentName);
-        const { data: existing, error } = await pQuery.maybeSingle();
-        if (error) return { ok: false, error: `Parent lookup failed: ${error.message}` };
+    const toInsert: {
+      full_name: string;
+      level: string | null;
+      school: string | null;
+      courses: string | null;
+      external_ref: string | null;
+    }[] = [];
 
-        if (existing) {
-          parent = existing as Parent;
-          summary.parentsMatched++;
-        } else {
-          const preferred: PreferredChannel = parentPhone ? "whatsapp" : "call";
-          const { data: inserted, error: insErr } = await supabase
-            .from("parents")
-            .insert({
-              full_name: parentName || "(unnamed)",
-              relationship: parentRelationship,
-              phone_e164: parentPhone,
-              email: parentEmail,
-              preferred_channel: preferred,
-            })
-            .select("*")
-            .single();
-          if (insErr) return { ok: false, error: `Parent insert failed: ${insErr.message}` };
-          parent = inserted as Parent;
-          summary.parentsCreated++;
-        }
-        parentCache.set(parentKey, parent);
+    for (const rec of records) {
+      const full_name = (rec.full_name ?? "").trim();
+      if (!full_name) {
+        summary.skippedBlank++;
+        continue;
       }
+      const row = {
+        full_name,
+        level: rec.level?.trim() || null,
+        school: rec.school?.trim() || null,
+        courses: rec.courses?.trim() || null,
+        external_ref: rec.external_ref?.trim() || null,
+      };
+      const key = studentKey(row);
+      if (seen.has(key)) {
+        summary.skippedExisting++;
+        continue;
+      }
+      seen.add(key);
+      toInsert.push(row);
     }
 
-    // --- Link (idempotent on composite key) ---
-    if (parent) {
-      const linkKey = `${student.id}:${parent.id}`;
-      if (!linkSeen.has(linkKey)) {
-        linkSeen.add(linkKey);
-        const { error: linkErr } = await supabase
-          .from("student_parents")
-          .upsert(
-            { student_id: student.id, parent_id: parent.id },
-            { onConflict: "student_id,parent_id", ignoreDuplicates: true },
-          );
-        if (linkErr) return { ok: false, error: `Link failed: ${linkErr.message}` };
-        summary.linksCreated++;
-      }
+    for (let i = 0; i < toInsert.length; i += CHUNK) {
+      const chunk = toInsert.slice(i, i + CHUNK);
+      const { error } = await supabase.from("students").insert(chunk);
+      if (error) return { ok: false, error: error.message };
+      summary.created += chunk.length;
     }
+
+    revalidatePath("/students");
+    revalidatePath("/dashboard");
+    return { ok: true, summary };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Import failed." };
   }
-
-  revalidatePath("/students");
-  revalidatePath("/dashboard");
-  return { ok: true, summary };
 }
 
-// --- Manual roster edits (used by student/parent pages) -------------------
+function studentKey(r: Record<string, unknown>): string {
+  const ref = norm(r.external_ref as string | null);
+  if (ref) return `ref:${ref}`;
+  return `nl:${norm(r.full_name as string)}|${norm(r.level as string | null)}|${norm(
+    r.school as string | null,
+  )}`;
+}
+
+// ---- Teachers bulk import -------------------------------------------------
+
+export interface TeacherImportRecord {
+  full_name: string;
+  code?: string | null;
+  position?: string | null;
+}
+
+export async function importTeachers(
+  records: TeacherImportRecord[],
+): Promise<ImportResult> {
+  await requireUser();
+  const supabase = await createClient();
+
+  const summary: ImportSummary = {
+    created: 0,
+    skippedExisting: 0,
+    skippedBlank: 0,
+    total: records.length,
+  };
+
+  try {
+    const existing = await fetchAllKeys(supabase, "teachers", "full_name");
+    const seen = new Set<string>();
+    for (const r of existing) seen.add(norm(r.full_name as string));
+
+    const toInsert: {
+      full_name: string;
+      code: string | null;
+      position: string | null;
+    }[] = [];
+
+    for (const rec of records) {
+      const full_name = (rec.full_name ?? "").trim();
+      if (!full_name) {
+        summary.skippedBlank++;
+        continue;
+      }
+      const key = norm(full_name);
+      if (seen.has(key)) {
+        summary.skippedExisting++;
+        continue;
+      }
+      seen.add(key);
+      toInsert.push({
+        full_name,
+        code: rec.code?.trim() || null,
+        position: rec.position?.trim() || null,
+      });
+    }
+
+    for (let i = 0; i < toInsert.length; i += CHUNK) {
+      const chunk = toInsert.slice(i, i + CHUNK);
+      const { error } = await supabase.from("teachers").insert(chunk);
+      if (error) return { ok: false, error: error.message };
+      summary.created += chunk.length;
+    }
+
+    revalidatePath("/teachers");
+    return { ok: true, summary };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Import failed." };
+  }
+}
+
+// ---- Manual roster edits --------------------------------------------------
 
 export async function upsertStudent(input: {
   id?: string;
   full_name: string;
   level?: string | null;
+  school?: string | null;
+  courses?: string | null;
   external_ref?: string | null;
   notes?: string | null;
 }): Promise<{ ok: boolean; id?: string; error?: string }> {
@@ -225,6 +222,8 @@ export async function upsertStudent(input: {
   const payload = {
     full_name: input.full_name.trim(),
     level: input.level?.trim() || null,
+    school: input.school?.trim() || null,
+    courses: input.courses?.trim() || null,
     external_ref: input.external_ref?.trim() || null,
     notes: input.notes?.trim() || null,
   };

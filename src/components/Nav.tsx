@@ -8,6 +8,7 @@ const items = [
   { href: "/dashboard", label: "Dashboard", icon: "◳" },
   { href: "/log", label: "Log conversation", icon: "✎" },
   { href: "/students", label: "Students", icon: "☷" },
+  { href: "/teachers", label: "Teachers", icon: "✦" },
   { href: "/granola", label: "Granola import", icon: "⤓" },
   { href: "/roster", label: "Roster import", icon: "⇪" },
   { href: "/settings", label: "Settings", icon: "⚙" },
