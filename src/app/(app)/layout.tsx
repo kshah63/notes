@@ -1,5 +1,5 @@
 import { requireUser } from "@/lib/auth";
-import { Nav } from "@/components/Nav";
+import { AppShell } from "@/components/AppShell";
 
 export default async function AppLayout({
   children,
@@ -8,12 +8,5 @@ export default async function AppLayout({
 }) {
   const user = await requireUser();
 
-  return (
-    <div className="flex min-h-screen">
-      <Nav userEmail={user.email ?? ""} />
-      <main className="flex-1 overflow-x-hidden">
-        <div className="mx-auto max-w-5xl px-6 py-8">{children}</div>
-      </main>
-    </div>
-  );
+  return <AppShell userEmail={user.email ?? ""}>{children}</AppShell>;
 }
