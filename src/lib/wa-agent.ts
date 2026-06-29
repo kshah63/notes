@@ -75,6 +75,16 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "complete_action_item",
+    description:
+      "Tick off an open to-do / action item. Match by a few words from it. If unsure which, ask first.",
+    input_schema: {
+      type: "object",
+      properties: { match: { type: "string" } },
+      required: ["match"],
+    },
+  },
+  {
     name: "file_recent_note",
     description:
       "Attach the most recent unfiled note to a student. Use after an ambiguous log_note once the user says which student it was about.",
@@ -150,9 +160,10 @@ Your main job is capturing notes well, conversationally:
 - If the student name is unclear or matches several people, the note is still saved unfiled — ask which student (offer the candidates) and use file_recent_note once they say.
 
 Other things they may ask:
-- "what's pending / what do I need to do" → list_todos, tight summary.
+- "what's pending / what do I need to do" → list_todos, tight scannable summary.
 - "latest on <student>" → get_student_history.
 - "remind me to…" → create_follow_up.
+- Updating tasks: "done with X" / "close X" → complete_action_item for a to-do, or complete_follow_up for a reminder (match by a few words; if unsure which, ask). Adding a comment or extra detail about a student → just log_note under that student.
 
 Style: short, warm, WhatsApp-like — a sentence or two, the odd • or ✓. No markdown headings. Always confirm what you did in plain words.`;
 
@@ -220,6 +231,8 @@ async function execTool(
         return await toolCreateFollowUp(db, ownerId, input);
       case "complete_follow_up":
         return await toolCompleteFollowUp(db, ownerId, input);
+      case "complete_action_item":
+        return await toolCompleteActionItem(db, ownerId, input);
       case "file_recent_note":
         return await toolFileRecentNote(db, ownerId, input);
       default:
@@ -420,6 +433,34 @@ async function toolCreateFollowUp(db: Db, ownerId: string, input: Record<string,
   });
   if (error) return { error: error.message };
   return { created: true, note, due_at: due.toISOString(), about: match?.full_name ?? null };
+}
+
+async function toolCompleteActionItem(db: Db, ownerId: string, input: Record<string, unknown>) {
+  const match = String(input.match ?? "").trim().toLowerCase();
+  if (!match) return { error: "no match text" };
+
+  const { data } = await db
+    .from("interactions")
+    .select("action_items(id, text, done)")
+    .eq("owner_id", ownerId)
+    .order("created_at", { ascending: false })
+    .limit(300);
+
+  const open: { id: string; text: string }[] = [];
+  for (const it of (data ?? []) as unknown as {
+    action_items: { id: string; text: string; done: boolean }[];
+  }[]) {
+    for (const ai of it.action_items ?? []) {
+      if (!ai.done && ai.text.toLowerCase().includes(match)) {
+        open.push({ id: ai.id, text: ai.text });
+      }
+    }
+  }
+
+  if (open.length === 0) return { done: false, reason: "no matching open to-do" };
+  if (open.length > 1) return { done: false, ambiguous: open.map((o) => o.text) };
+  await db.from("action_items").update({ done: true }).eq("id", open[0].id);
+  return { done: true, text: open[0].text };
 }
 
 async function toolFileRecentNote(db: Db, ownerId: string, input: Record<string, unknown>) {

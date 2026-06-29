@@ -26,6 +26,7 @@ export async function GET() {
     supabase: supabaseConfigured(),
     anthropic: isAnthropicConfigured(),
     twilio: isTwilioConfigured(),
+    twilio_from: process.env.TWILIO_WHATSAPP_FROM || "(not set)",
     deepgram: isDeepgramConfigured(),
     accounts: 0,
   };
