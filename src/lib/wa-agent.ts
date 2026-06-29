@@ -74,6 +74,16 @@ const TOOLS: Anthropic.Tool[] = [
       required: ["match"],
     },
   },
+  {
+    name: "file_recent_note",
+    description:
+      "Attach the most recent unfiled note to a student. Use after an ambiguous log_note once the user says which student it was about.",
+    input_schema: {
+      type: "object",
+      properties: { student_name: { type: "string" } },
+      required: ["student_name"],
+    },
+  },
 ];
 
 export interface WaTurn {
@@ -138,6 +148,7 @@ Behaviour:
 - If they ask what's pending / to-do, use list_todos and give a tight, scannable summary.
 - If they ask about a student, use get_student_history.
 - For "remind me…", use create_follow_up.
+- If a tool reports needs_clarification with candidates (an ambiguous student name), the note is still saved but unfiled — ask which student, listing the candidates, and when they reply use file_recent_note to attach it.
 - Keep replies short and WhatsApp-friendly: a line or two, light use of • bullets and ✓. Confirm what you did. No markdown headers.`;
 
   const messages: Anthropic.MessageParam[] = [
@@ -204,6 +215,8 @@ async function execTool(
         return await toolCreateFollowUp(db, ownerId, input);
       case "complete_follow_up":
         return await toolCompleteFollowUp(db, ownerId, input);
+      case "file_recent_note":
+        return await toolFileRecentNote(db, ownerId, input);
       default:
         return { error: `unknown tool ${name}` };
     }
@@ -212,17 +225,54 @@ async function execTool(
   }
 }
 
+interface StudentMatch {
+  id: string;
+  full_name: string;
+  level: string | null;
+  score: number;
+}
+
+// Fuzzy, typo-tolerant student lookup. Returns a confident match only when one
+// candidate clearly stands out; otherwise flags ambiguity so the agent can ask
+// "did you mean…?".
 async function findStudent(db: Db, ownerId: string, name?: unknown) {
   const q = typeof name === "string" ? name.trim() : "";
-  if (!q) return { match: null, candidates: [] as { id: string; full_name: string }[] };
-  const { data } = await db
-    .from("students")
-    .select("id, full_name, level")
-    .eq("owner_id", ownerId)
-    .ilike("full_name", `%${q}%`)
-    .limit(5);
-  const rows = (data ?? []) as { id: string; full_name: string; level: string | null }[];
-  return { match: rows[0] ?? null, candidates: rows };
+  const empty = { match: null, candidates: [] as StudentMatch[], ambiguous: false };
+  if (!q) return empty;
+
+  let rows: StudentMatch[] = [];
+  const { data, error } = await db.rpc("match_students", {
+    p_owner: ownerId,
+    p_query: q,
+    p_limit: 5,
+  });
+  if (!error && data) {
+    rows = (data as { id: string; full_name: string; level: string | null; score: number }[]).map(
+      (r) => ({ id: r.id, full_name: r.full_name, level: r.level, score: r.score }),
+    );
+  } else {
+    // Fallback if migration 0005 isn't applied yet.
+    const { data: d2 } = await db
+      .from("students")
+      .select("id, full_name, level")
+      .eq("owner_id", ownerId)
+      .ilike("full_name", `%${q}%`)
+      .limit(5);
+    rows = ((d2 ?? []) as { id: string; full_name: string; level: string | null }[]).map(
+      (r) => ({ ...r, score: 1 }),
+    );
+  }
+
+  if (rows.length === 0) return empty;
+  if (rows.length === 1) return { match: rows[0], candidates: rows, ambiguous: false };
+
+  // Confident only when the top candidate clearly dominates.
+  const dominant = rows[0].score - rows[1].score > 0.2;
+  return {
+    match: dominant ? rows[0] : null,
+    candidates: rows,
+    ambiguous: !dominant,
+  };
 }
 
 async function toolLogNote(db: Db, ownerId: string, input: Record<string, unknown>) {
@@ -232,7 +282,11 @@ async function toolLogNote(db: Db, ownerId: string, input: Record<string, unknow
     ? (input.channel as Channel)
     : "whatsapp";
 
-  const { match } = await findStudent(db, ownerId, input.student_name);
+  const { match, ambiguous, candidates } = await findStudent(
+    db,
+    ownerId,
+    input.student_name,
+  );
   const tidy = await tidyAndExtract({
     channel,
     studentName: match?.full_name,
@@ -262,9 +316,17 @@ async function toolLogNote(db: Db, ownerId: string, input: Record<string, unknow
     );
   }
 
+  const wantedStudent = typeof input.student_name === "string" && input.student_name.trim();
+  const needsClarification = Boolean(wantedStudent) && !match && candidates.length > 0;
+
   return {
     saved: true,
-    filed_under: match?.full_name ?? "unfiled (no student matched)",
+    filed_under: match?.full_name ?? "unfiled",
+    needs_clarification: needsClarification || ambiguous,
+    candidates:
+      needsClarification || ambiguous
+        ? candidates.map((c) => (c.level ? `${c.full_name} (${c.level})` : c.full_name))
+        : undefined,
     summary: tidy.summary,
     action_items: tidy.action_items,
     suggested_follow_up: tidy.suggested_follow_up,
@@ -353,6 +415,29 @@ async function toolCreateFollowUp(db: Db, ownerId: string, input: Record<string,
   });
   if (error) return { error: error.message };
   return { created: true, note, due_at: due.toISOString(), about: match?.full_name ?? null };
+}
+
+async function toolFileRecentNote(db: Db, ownerId: string, input: Record<string, unknown>) {
+  const { match, candidates } = await findStudent(db, ownerId, input.student_name);
+  if (!match) {
+    return { filed: false, candidates: candidates.map((c) => c.full_name) };
+  }
+  const { data } = await db
+    .from("interactions")
+    .select("id, summary")
+    .eq("owner_id", ownerId)
+    .is("student_id", null)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  const rows = (data ?? []) as { id: string; summary: string | null }[];
+  if (rows.length === 0) return { filed: false, reason: "no recent unfiled note to file" };
+
+  const { error } = await db
+    .from("interactions")
+    .update({ student_id: match.id })
+    .eq("id", rows[0].id);
+  if (error) return { error: error.message };
+  return { filed: true, student: match.full_name, summary: rows[0].summary };
 }
 
 async function toolCompleteFollowUp(db: Db, ownerId: string, input: Record<string, unknown>) {
