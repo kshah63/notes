@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Button,
@@ -12,31 +12,28 @@ import {
   Badge,
 } from "./ui";
 import { CHANNELS, CHANNEL_LABELS } from "@/lib/types";
-import type { Channel, Student, Parent, Teacher, TidyResult } from "@/lib/types";
+import type { Channel, Parent, TidyResult } from "@/lib/types";
+import { EntityPicker } from "./EntityPicker";
+import { searchStudents, searchTeachers, type PickerOption } from "@/app/actions/lookup";
 import { toDatetimeLocalValue } from "@/lib/dates";
 import { tidyAndExtractAction, logInteraction } from "@/app/actions/interactions";
 import { useDictation } from "@/lib/useDictation";
 
 export function LogConversationForm({
-  students,
   parents,
-  teachers,
   links,
   defaultChannel,
-  initialStudentId,
+  initialStudent,
   initialParentId,
-  initialTeacherId,
+  initialTeacher,
   prefill,
 }: {
-  students: Student[];
   parents: Parent[];
-  teachers: Teacher[];
   links: { student_id: string; parent_id: string }[];
   defaultChannel: Channel;
-  initialStudentId?: string;
+  initialStudent?: PickerOption | null;
   initialParentId?: string;
-  initialTeacherId?: string;
-  // Optional prefill (used by the Granola paste import flow).
+  initialTeacher?: PickerOption | null;
   prefill?: {
     rawNotes?: string;
     summary?: string;
@@ -48,9 +45,13 @@ export function LogConversationForm({
 }) {
   const router = useRouter();
 
-  const [studentId, setStudentId] = useState(initialStudentId ?? "");
+  const [student, setStudent] = useState<PickerOption | null>(
+    initialStudent ?? null,
+  );
+  const [teacher, setTeacher] = useState<PickerOption | null>(
+    initialTeacher ?? null,
+  );
   const [parentId, setParentId] = useState(initialParentId ?? "");
-  const [teacherId, setTeacherId] = useState(initialTeacherId ?? "");
   const [channel, setChannel] = useState<Channel>(defaultChannel);
   const [occurredAt, setOccurredAt] = useState(toDatetimeLocalValue());
   const [rawNotes, setRawNotes] = useState(prefill?.rawNotes ?? "");
@@ -65,31 +66,34 @@ export function LogConversationForm({
   const [fuDue, setFuDue] = useState(() => defaultDue(3));
   const [fuNote, setFuNote] = useState("");
   const [fuInApp, setFuInApp] = useState(true);
-  const [fuWhatsApp, setFuWhatsApp] = useState(false);
+  const [fuWhatsApp, setFuWhatsApp] = useState(true);
 
   const [tidying, setTidying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const notesRef = useRef<HTMLTextAreaElement>(null);
-  const dictation = useDictation((text) => {
-    setRawNotes((prev) => (prev ? `${prev} ${text}` : text));
-  });
-
-  const studentName = useMemo(
-    () => students.find((s) => s.id === studentId)?.full_name,
-    [students, studentId],
+  // --- Voice capture (works for a 5s update or a 30-min meeting) ---
+  const [seconds, setSeconds] = useState(0);
+  const dictation = useDictation(
+    (text) => setRawNotes((prev) => (prev ? `${prev} ${text}` : text)),
+    { continuous: true, interim: true },
   );
-  const parentName = useMemo(
-    () => parents.find((p) => p.id === parentId)?.full_name,
-    [parents, parentId],
-  );
+  useEffect(() => {
+    if (!dictation.listening) {
+      setSeconds(0);
+      return;
+    }
+    const id = setInterval(() => setSeconds((s) => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [dictation.listening]);
 
-  // When a student is picked and no parent set yet, auto-fill their parent.
-  function onStudentChange(value: string) {
-    setStudentId(value);
-    if (!parentId && value) {
-      const link = links.find((l) => l.student_id === value);
+  const studentName = student?.label.split(" · ")[0];
+  const parentName = parents.find((p) => p.id === parentId)?.full_name;
+
+  function onStudentChange(opt: PickerOption | null) {
+    setStudent(opt);
+    if (opt && !parentId) {
+      const link = links.find((l) => l.student_id === opt.id);
       if (link) setParentId(link.parent_id);
     }
   }
@@ -101,11 +105,8 @@ export function LogConversationForm({
     if (sfu.note) setFuNote(sfu.note);
   }
 
-  // Apply a Granola prefill's suggestion once on mount.
   useEffect(() => {
-    if (prefill?.suggestedFollowUp) {
-      applySuggestedFollowUp(prefill.suggestedFollowUp);
-    }
+    if (prefill?.suggestedFollowUp) applySuggestedFollowUp(prefill.suggestedFollowUp);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -131,11 +132,16 @@ export function LogConversationForm({
 
   function save() {
     setError(null);
+    if (!rawNotes.trim() && !summary.trim()) {
+      setError("Add some notes (type or record) before saving.");
+      return;
+    }
+    if (dictation.listening) dictation.stop();
     startTransition(async () => {
       const res = await logInteraction({
-        student_id: studentId || null,
+        student_id: student?.id ?? null,
         parent_id: parentId || null,
-        teacher_id: teacherId || null,
+        teacher_id: teacher?.id ?? null,
         channel,
         occurred_at: new Date(occurredAt).toISOString(),
         raw_notes: rawNotes,
@@ -156,8 +162,9 @@ export function LogConversationForm({
         setError(res.error ?? "Could not save.");
         return;
       }
-      if (studentId) router.push(`/students/${studentId}`);
+      if (student) router.push(`/students/${student.id}`);
       else if (parentId) router.push(`/parents/${parentId}`);
+      else if (teacher) router.push(`/teachers/${teacher.id}`);
       else router.push("/dashboard");
       router.refresh();
     });
@@ -165,27 +172,68 @@ export function LogConversationForm({
 
   return (
     <div className="space-y-5">
+      {/* Capture first — fastest path to logging something. */}
+      <Card className="space-y-3 p-5">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium uppercase tracking-wide text-ink-500">
+            What happened?
+          </span>
+          {dictation.supported && (
+            <button
+              type="button"
+              onClick={dictation.toggle}
+              className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium ${
+                dictation.listening
+                  ? "bg-red-500 text-white"
+                  : "bg-accent-600 text-white hover:bg-accent-700"
+              }`}
+            >
+              {dictation.listening ? (
+                <>
+                  <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-white" />
+                  Stop · {formatClock(seconds)}
+                </>
+              ) : (
+                <>🎙 Record</>
+              )}
+            </button>
+          )}
+        </div>
+        <Textarea
+          rows={6}
+          value={rawNotes}
+          onChange={(e) => setRawNotes(e.target.value)}
+          placeholder="Type, or tap Record and talk. (On iPhone you can also use the keyboard mic.)"
+        />
+        {dictation.listening && (
+          <p className="text-sm text-ink-500">
+            <span className="text-red-500">● recording</span>
+            {dictation.interim ? ` — ${dictation.interim}` : " — listening…"}
+          </p>
+        )}
+        <div className="flex flex-wrap items-center gap-3">
+          <Button onClick={tidy} disabled={tidying || !rawNotes.trim()}>
+            {tidying ? "Tidying…" : "✨ Tidy & extract"}
+          </Button>
+          <span className="text-xs text-ink-500">
+            AI cleans it up and pulls out action items.
+          </span>
+        </div>
+      </Card>
+
+      {/* Who & how */}
       <Card className="space-y-4 p-5">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Student">
-            <Select
-              value={studentId}
-              onChange={(e) => onStudentChange(e.target.value)}
-            >
-              <option value="">— none —</option>
-              {students.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.full_name}
-                  {s.level ? ` (${s.level})` : ""}
-                </option>
-              ))}
-            </Select>
+            <EntityPicker
+              value={student}
+              onChange={onStudentChange}
+              search={searchStudents}
+              placeholder="Search students…"
+            />
           </Field>
           <Field label="Parent">
-            <Select
-              value={parentId}
-              onChange={(e) => setParentId(e.target.value)}
-            >
+            <Select value={parentId} onChange={(e) => setParentId(e.target.value)}>
               <option value="">— none —</option>
               {parents.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -196,17 +244,12 @@ export function LogConversationForm({
             </Select>
           </Field>
           <Field label="Teacher">
-            <Select
-              value={teacherId}
-              onChange={(e) => setTeacherId(e.target.value)}
-            >
-              <option value="">— none —</option>
-              {teachers.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.full_name}
-                </option>
-              ))}
-            </Select>
+            <EntityPicker
+              value={teacher}
+              onChange={setTeacher}
+              search={searchTeachers}
+              placeholder="Search teachers…"
+            />
           </Field>
           <Field label="Channel">
             <Select
@@ -228,54 +271,18 @@ export function LogConversationForm({
             />
           </Field>
         </div>
-
-        <div>
-          <div className="mb-1 flex items-center justify-between">
-            <span className="text-xs font-medium uppercase tracking-wide text-ink-500">
-              Raw notes
-            </span>
-            {dictation.supported && (
-              <button
-                type="button"
-                onClick={dictation.toggle}
-                className={`rounded-md px-2 py-1 text-xs font-medium ${
-                  dictation.listening
-                    ? "bg-red-50 text-red-600"
-                    : "bg-ink-100 text-ink-600 hover:bg-ink-200"
-                }`}
-              >
-                {dictation.listening ? "● Stop dictation" : "🎙 Dictate"}
-              </button>
-            )}
-          </div>
-          <Textarea
-            ref={notesRef}
-            rows={6}
-            value={rawNotes}
-            onChange={(e) => setRawNotes(e.target.value)}
-            placeholder="Type or dictate what was said…"
-          />
-        </div>
-
-        <div className="flex items-center gap-3">
-          <Button onClick={tidy} disabled={tidying || !rawNotes.trim()}>
-            {tidying ? "Tidying…" : "✨ Tidy & extract"}
-          </Button>
-          <span className="text-xs text-ink-500">
-            Sends your notes to the AI for a clean summary + action items.
-          </span>
-        </div>
+        <p className="text-xs text-ink-500">
+          Leave everything blank to save a quick unfiled note — you can file it
+          from the dashboard later.
+        </p>
       </Card>
 
       {(tidied || summary) && (
         <Card className="space-y-4 p-5">
           <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-ink-700">
-              Review &amp; edit
-            </h2>
+            <h2 className="text-sm font-semibold text-ink-700">Review &amp; edit</h2>
             <Badge tone="accent">AI draft</Badge>
           </div>
-
           <Field label="Summary">
             <Textarea
               rows={4}
@@ -283,7 +290,6 @@ export function LogConversationForm({
               onChange={(e) => setSummary(e.target.value)}
             />
           </Field>
-
           <div>
             <div className="mb-1 flex items-center justify-between">
               <span className="text-xs font-medium uppercase tracking-wide text-ink-500">
@@ -337,7 +343,6 @@ export function LogConversationForm({
           />
           Set a follow-up reminder
         </label>
-
         {withFollowUp && (
           <div className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
@@ -373,7 +378,7 @@ export function LogConversationForm({
                   onChange={(e) => setFuWhatsApp(e.target.checked)}
                   className="h-4 w-4 rounded border-ink-300 text-accent-600 focus:ring-accent-400"
                 />
-                WhatsApp nudge to me
+                WhatsApp nudge
               </label>
             </div>
           </div>
@@ -383,17 +388,9 @@ export function LogConversationForm({
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       <div className="flex items-center gap-3">
-        <Button
-          onClick={save}
-          disabled={pending || (!studentId && !parentId)}
-        >
-          {pending ? "Saving…" : "Save conversation"}
+        <Button onClick={save} disabled={pending}>
+          {pending ? "Saving…" : "Save"}
         </Button>
-        {!studentId && !parentId && (
-          <span className="text-xs text-ink-500">
-            Pick a student and/or parent first.
-          </span>
-        )}
       </div>
     </div>
   );
@@ -404,4 +401,10 @@ function defaultDue(days: number): string {
   d.setDate(d.getDate() + days);
   d.setHours(9, 0, 0, 0);
   return toDatetimeLocalValue(d.toISOString());
+}
+
+function formatClock(totalSeconds: number): string {
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
 }

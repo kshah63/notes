@@ -5,7 +5,7 @@ import {
   listGranolaNotesAction,
   previewGranolaNoteAction,
 } from "@/app/actions/interactions";
-import type { Student, Parent, Teacher, Channel, TidyResult } from "@/lib/types";
+import type { Parent, Channel, TidyResult } from "@/lib/types";
 import { Button, Card, Badge, EmptyState } from "./ui";
 import { LogConversationForm } from "./LogConversationForm";
 import { formatDate } from "@/lib/dates";
@@ -28,17 +28,13 @@ interface Preview {
 }
 
 export function GranolaImport({
-  students,
   parents,
-  teachers,
   links,
   defaultChannel,
   apiConfigured,
   defaultPath,
 }: {
-  students: Student[];
   parents: Parent[];
-  teachers: Teacher[];
   links: { student_id: string; parent_id: string }[];
   defaultChannel: Channel;
   apiConfigured: boolean;
@@ -60,14 +56,12 @@ export function GranolaImport({
       {tab === "paste" ? (
         <div className="space-y-3">
           <p className="text-sm text-ink-600">
-            Copy a Granola note&apos;s summary or transcript, paste it into Raw
-            notes below, pick the student/parent, then tidy &amp; save. Works on
-            any Granola plan.
+            Copy a Granola note&apos;s summary or transcript, paste it into the
+            capture box below, pick the student/parent, then tidy &amp; save.
+            Works on any Granola plan.
           </p>
           <LogConversationForm
-            students={students}
             parents={parents}
-            teachers={teachers}
             links={links}
             defaultChannel={defaultChannel}
             prefill={{ source: "granola" }}
@@ -75,9 +69,7 @@ export function GranolaImport({
         </div>
       ) : (
         <BrowsePath
-          students={students}
           parents={parents}
-          teachers={teachers}
           links={links}
           defaultChannel={defaultChannel}
           apiConfigured={apiConfigured}
@@ -88,16 +80,12 @@ export function GranolaImport({
 }
 
 function BrowsePath({
-  students,
   parents,
   links,
-  teachers,
   defaultChannel,
   apiConfigured,
 }: {
-  students: Student[];
   parents: Parent[];
-  teachers: Teacher[];
   links: { student_id: string; parent_id: string }[];
   defaultChannel: Channel;
   apiConfigured: boolean;
@@ -163,9 +151,7 @@ function BrowsePath({
           </button>
         </Card>
         <LogConversationForm
-          students={students}
           parents={parents}
-          teachers={teachers}
           links={links}
           defaultChannel={defaultChannel}
           prefill={{
@@ -191,9 +177,7 @@ function BrowsePath({
           {error}
         </p>
       )}
-      {notes && notes.length === 0 && (
-        <EmptyState title="No Granola notes found" />
-      )}
+      {notes && notes.length === 0 && <EmptyState title="No Granola notes found" />}
       {notes && notes.length > 0 && (
         <Card>
           <ul className="divide-y divide-ink-100">

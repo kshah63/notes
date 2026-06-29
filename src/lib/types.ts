@@ -104,6 +104,9 @@ export interface AppSettings {
   reminder_whatsapp_number: string | null;
   default_channel: Channel;
   granola_path: GranolaPath;
+  nudge_enabled: boolean;
+  nudge_start_hour: number;
+  nudge_end_hour: number;
   created_at: string;
   updated_at: string;
 }

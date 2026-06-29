@@ -59,10 +59,8 @@ export async function logInteraction(
   await requireUser();
   const supabase = await createClient();
 
-  if (!input.student_id && !input.parent_id) {
-    return { ok: false, error: "Pick a student and/or a parent." };
-  }
-
+  // student/parent/teacher are all optional — a quick unfiled note is allowed
+  // (it surfaces on the dashboard to be filed later).
   const { data: interaction, error } = await supabase
     .from("interactions")
     .insert({

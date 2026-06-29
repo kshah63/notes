@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { sendWhatsAppTemplate } from "@/lib/whatsapp";
+import { sendWhatsAppTemplate, parseRecipients } from "@/lib/whatsapp";
 import { isTwilioConfigured } from "@/lib/env";
 
 export const runtime = "nodejs";
@@ -48,29 +48,29 @@ export async function GET(request: NextRequest) {
 
   const rows = (due ?? []) as unknown as DueRow[];
   const fallbackNumber = process.env.WHATSAPP_TO_NUMBER || null;
-  const numberByOwner = new Map<string, string | null>();
+  const recipientsByOwner = new Map<string, string[]>();
 
   let sent = 0;
   let skipped = 0;
   const errors: string[] = [];
 
   for (const f of rows) {
-    // Resolve the recipient: per-owner setting overrides the env fallback.
-    let recipient = numberByOwner.get(f.owner_id);
-    if (recipient === undefined) {
+    // Resolve recipients: per-owner setting (comma-separated) overrides env.
+    let recipients = recipientsByOwner.get(f.owner_id);
+    if (recipients === undefined) {
       const { data: settings } = await supabase
         .from("app_settings")
         .select("reminder_whatsapp_number")
         .eq("owner_id", f.owner_id)
         .maybeSingle();
-      recipient =
-        (settings?.reminder_whatsapp_number as string | null) ||
-        fallbackNumber ||
-        null;
-      numberByOwner.set(f.owner_id, recipient);
+      recipients = parseRecipients(
+        settings?.reminder_whatsapp_number as string | null,
+        fallbackNumber,
+      );
+      recipientsByOwner.set(f.owner_id, recipients);
     }
 
-    if (!recipient) {
+    if (recipients.length === 0) {
       skipped++;
       continue;
     }
@@ -79,8 +79,19 @@ export async function GET(request: NextRequest) {
     const studentName = f.student?.full_name ?? "a student";
     const note = f.note ?? "Follow-up due.";
 
-    try {
-      await sendWhatsAppTemplate(recipient, { parentName, studentName, note });
+    let anySent = false;
+    for (const to of recipients) {
+      try {
+        await sendWhatsAppTemplate(to, { parentName, studentName, note });
+        anySent = true;
+      } catch (err) {
+        errors.push(
+          `${f.id}→${to}: ${err instanceof Error ? err.message : "send failed"}`,
+        );
+      }
+    }
+
+    if (anySent) {
       // Idempotent stamp: only if still unsent.
       await supabase
         .from("follow_ups")
@@ -88,10 +99,6 @@ export async function GET(request: NextRequest) {
         .eq("id", f.id)
         .is("reminded_at", null);
       sent++;
-    } catch (err) {
-      errors.push(
-        `${f.id}: ${err instanceof Error ? err.message : "send failed"}`,
-      );
     }
   }
 

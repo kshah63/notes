@@ -25,3 +25,13 @@ export function isTwilioConfigured(): boolean {
 }
 
 export const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5";
+
+// Absolute base URL for links sent in WhatsApp messages. Prefers an explicit
+// APP_URL, falls back to Vercel's production URL.
+export function getAppUrl(): string {
+  if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, "");
+  const vercel =
+    process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
+  if (vercel) return `https://${vercel}`;
+  return "";
+}

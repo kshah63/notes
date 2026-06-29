@@ -2,10 +2,13 @@
 
 import Link from "next/link";
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import type { InteractionWithDetails } from "@/lib/types";
 import { ChannelBadge } from "./ChannelBadge";
 import { ActionItemToggle } from "./ActionItemToggle";
 import { FollowUpForm } from "./FollowUpForm";
+import { EntityPicker } from "./EntityPicker";
+import { searchStudents, type PickerOption } from "@/app/actions/lookup";
 import { Badge, Button, Card, Textarea } from "./ui";
 import { formatDateTime, formatDate, relativeFromNow } from "@/lib/dates";
 import { updateInteraction, deleteInteraction } from "@/app/actions/interactions";
@@ -22,11 +25,23 @@ export function InteractionCard({
   showParent?: boolean;
   showTeacher?: boolean;
 }) {
+  const router = useRouter();
   const [showRaw, setShowRaw] = useState(false);
   const [editing, setEditing] = useState(false);
   const [summary, setSummary] = useState(interaction.summary ?? "");
   const [addingFollowUp, setAddingFollowUp] = useState(false);
   const [pending, startTransition] = useTransition();
+
+  const unfiled =
+    !interaction.student && !interaction.parent && !interaction.teacher;
+
+  function fileUnderStudent(opt: PickerOption | null) {
+    if (!opt) return;
+    startTransition(async () => {
+      const res = await updateInteraction(interaction.id, { student_id: opt.id });
+      if (res.ok) router.refresh();
+    });
+  }
 
   const openFollowUps = interaction.follow_ups.filter(
     (f) => f.status === "pending",
@@ -112,6 +127,20 @@ export function InteractionCard({
               ✦ {interaction.teacher.full_name}
             </Link>
           )}
+        </div>
+      )}
+
+      {unfiled && (
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <Badge tone="amber">Unfiled</Badge>
+          <div className="w-56">
+            <EntityPicker
+              value={null}
+              onChange={fileUnderStudent}
+              search={searchStudents}
+              placeholder="File under student…"
+            />
+          </div>
         </div>
       )}
 

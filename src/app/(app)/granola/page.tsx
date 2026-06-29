@@ -1,7 +1,6 @@
 import {
-  getStudents,
+  countStudents,
   getParents,
-  getTeachers,
   getStudentParentLinks,
   getSettings,
 } from "@/lib/queries";
@@ -12,15 +11,14 @@ import { GranolaImport } from "@/components/GranolaImport";
 export const dynamic = "force-dynamic";
 
 export default async function GranolaPage() {
-  const [students, parents, teachers, links, settings] = await Promise.all([
-    getStudents(),
+  const [studentCount, parents, links, settings] = await Promise.all([
+    countStudents(),
     getParents(),
-    getTeachers(),
     getStudentParentLinks(),
     getSettings(),
   ]);
 
-  if (students.length === 0 && parents.length === 0) {
+  if (studentCount === 0 && parents.length === 0) {
     return (
       <div>
         <PageHeader title="Granola import" />
@@ -40,9 +38,7 @@ export default async function GranolaPage() {
         subtitle="Pull a meeting into the same tidy-and-save pipeline."
       />
       <GranolaImport
-        students={students}
         parents={parents}
-        teachers={teachers}
         links={links}
         defaultChannel={settings?.default_channel ?? "in_person"}
         apiConfigured={isGranolaApiConfigured()}
