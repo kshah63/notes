@@ -52,6 +52,9 @@ export function LogConversationForm({
     initialTeacher ?? null,
   );
   const [parentId, setParentId] = useState(initialParentId ?? "");
+  const [showDetails, setShowDetails] = useState(
+    Boolean(initialTeacher || initialParentId),
+  );
   const [channel, setChannel] = useState<Channel>(defaultChannel);
   const [occurredAt, setOccurredAt] = useState(toDatetimeLocalValue());
   const [rawNotes, setRawNotes] = useState(prefill?.rawNotes ?? "");
@@ -221,60 +224,70 @@ export function LogConversationForm({
         </div>
       </Card>
 
-      {/* Who & how */}
-      <Card className="space-y-4 p-5">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Student">
-            <EntityPicker
-              value={student}
-              onChange={onStudentChange}
-              search={searchStudents}
-              placeholder="Search students…"
-            />
-          </Field>
-          <Field label="Parent">
-            <Select value={parentId} onChange={(e) => setParentId(e.target.value)}>
-              <option value="">— none —</option>
-              {parents.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.full_name}
-                  {p.relationship ? ` (${p.relationship})` : ""}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Teacher">
-            <EntityPicker
-              value={teacher}
-              onChange={setTeacher}
-              search={searchTeachers}
-              placeholder="Search teachers…"
-            />
-          </Field>
-          <Field label="Channel">
-            <Select
-              value={channel}
-              onChange={(e) => setChannel(e.target.value as Channel)}
-            >
-              {CHANNELS.map((c) => (
-                <option key={c} value={c}>
-                  {CHANNEL_LABELS[c]}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="When">
-            <Input
-              type="datetime-local"
-              value={occurredAt}
-              onChange={(e) => setOccurredAt(e.target.value)}
-            />
-          </Field>
-        </div>
-        <p className="text-xs text-ink-500">
-          Leave everything blank to save a quick unfiled note — you can file it
-          from the dashboard later.
-        </p>
+      {/* Who it's about — just the student by default; the rest is optional. */}
+      <Card className="space-y-3 p-5">
+        <Field label="Student (optional)">
+          <EntityPicker
+            value={student}
+            onChange={onStudentChange}
+            search={searchStudents}
+            placeholder="Search a student, or leave blank…"
+          />
+        </Field>
+
+        {showDetails ? (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Parent">
+              <Select
+                value={parentId}
+                onChange={(e) => setParentId(e.target.value)}
+              >
+                <option value="">— none —</option>
+                {parents.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.full_name}
+                    {p.relationship ? ` (${p.relationship})` : ""}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Teacher">
+              <EntityPicker
+                value={teacher}
+                onChange={setTeacher}
+                search={searchTeachers}
+                placeholder="Search teachers…"
+              />
+            </Field>
+            <Field label="Channel">
+              <Select
+                value={channel}
+                onChange={(e) => setChannel(e.target.value as Channel)}
+              >
+                {CHANNELS.map((c) => (
+                  <option key={c} value={c}>
+                    {CHANNEL_LABELS[c]}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="When">
+              <Input
+                type="datetime-local"
+                value={occurredAt}
+                onChange={(e) => setOccurredAt(e.target.value)}
+              />
+            </Field>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowDetails(true)}
+            className="text-xs font-medium text-accent-600 hover:underline"
+          >
+            + parent, teacher, channel or time
+          </button>
+        )}
       </Card>
 
       {(tidied || summary) && (
