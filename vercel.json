@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/update-prompt",
       "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/daily-digest",
+      "schedule": "0 0 * * *"
     }
   ]
 }

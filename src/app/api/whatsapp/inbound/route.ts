@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import twilio from "twilio";
 import { waitUntil } from "@vercel/functions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { parseRecipients, sendWhatsAppText } from "@/lib/whatsapp";
@@ -15,6 +16,24 @@ export const maxDuration = 60;
 // and never times out / retries.
 export async function POST(request: NextRequest) {
   const form = await request.formData();
+
+  // Optional hardening: verify the request really came from Twilio. Off by
+  // default (set TWILIO_VALIDATE_SIGNATURE=true once your webhook URL is final).
+  if (process.env.TWILIO_VALIDATE_SIGNATURE === "true") {
+    const token = process.env.TWILIO_AUTH_TOKEN || "";
+    const signature = request.headers.get("x-twilio-signature") || "";
+    const proto = request.headers.get("x-forwarded-proto") || "https";
+    const host = request.headers.get("host") || "";
+    const url = `${proto}://${host}/api/whatsapp/inbound`;
+    const params: Record<string, string> = {};
+    for (const [k, v] of form.entries()) {
+      if (typeof v === "string") params[k] = v;
+    }
+    if (!twilio.validateRequest(token, signature, url, params)) {
+      return new NextResponse("forbidden", { status: 403 });
+    }
+  }
+
   const from = String(form.get("From") ?? ""); // "whatsapp:+65..."
   const body = String(form.get("Body") ?? "").trim();
   const numMedia = parseInt(String(form.get("NumMedia") ?? "0"), 10) || 0;

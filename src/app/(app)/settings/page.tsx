@@ -75,6 +75,20 @@ export default async function SettingsPage() {
         </Card>
 
         <SettingsForm settings={settings} />
+
+        <Card className="p-5">
+          <h2 className="mb-1 text-sm font-semibold text-ink-700">Backup</h2>
+          <p className="mb-3 text-xs text-ink-500">
+            Download a full JSON export of your students, parents, teachers,
+            conversations, and follow-ups.
+          </p>
+          <a
+            href="/api/export"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-ink-200 bg-white px-3.5 py-2 text-sm font-medium text-ink-800 hover:bg-ink-50"
+          >
+            ⤓ Download backup
+          </a>
+        </Card>
       </div>
     </div>
   );

@@ -3,7 +3,11 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import type { DueFollowUp } from "@/lib/queries";
-import { completeFollowUp, cancelFollowUp } from "@/app/actions/follow-ups";
+import {
+  completeFollowUp,
+  cancelFollowUp,
+  snoozeFollowUp,
+} from "@/app/actions/follow-ups";
 import { Badge } from "./ui";
 import { formatDateTime, relativeFromNow } from "@/lib/dates";
 
@@ -61,6 +65,32 @@ export function DueFollowUpItem({ followUp }: { followUp: DueFollowUp }) {
           className="rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
         >
           Done
+        </button>
+        <button
+          onClick={() =>
+            startTransition(async () => {
+              const res = await snoozeFollowUp(followUp.id, 1);
+              if (res.ok) setHidden(true);
+            })
+          }
+          disabled={pending}
+          title="Snooze 1 day"
+          className="rounded-md px-2 py-1 text-xs text-ink-500 hover:bg-ink-100"
+        >
+          +1d
+        </button>
+        <button
+          onClick={() =>
+            startTransition(async () => {
+              const res = await snoozeFollowUp(followUp.id, 7);
+              if (res.ok) setHidden(true);
+            })
+          }
+          disabled={pending}
+          title="Snooze 1 week"
+          className="rounded-md px-2 py-1 text-xs text-ink-500 hover:bg-ink-100"
+        >
+          +1w
         </button>
         <button
           onClick={() =>

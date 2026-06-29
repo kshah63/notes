@@ -73,6 +73,33 @@ export async function getTeacherTimeline(
   return (data as unknown as InteractionWithDetails[]) ?? [];
 }
 
+export interface AttentionStudent {
+  id: string;
+  full_name: string;
+  level: string | null;
+  last_contact: string | null;
+  days_since: number | null;
+}
+
+// Students you've contacted before but have gone quiet on (> `days` ago).
+export async function getStudentsNeedingAttention(
+  days = 30,
+): Promise<AttentionStudent[]> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data, error } = await supabase.rpc("students_needing_attention", {
+    p_owner: user.id,
+    p_days: days,
+    p_limit: 100,
+  });
+  if (error || !data) return [];
+  return data as AttentionStudent[];
+}
+
 export async function countStudents(): Promise<number> {
   const supabase = await createClient();
   const { count } = await supabase

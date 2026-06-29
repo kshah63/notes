@@ -37,6 +37,28 @@ export async function createFollowUp(input: {
   return { ok: true, id: data.id };
 }
 
+export async function snoozeFollowUp(
+  id: string,
+  days: number,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireUser();
+  const supabase = await createClient();
+  const { data: fu } = await supabase
+    .from("follow_ups")
+    .select("due_at, student_id, parent_id")
+    .eq("id", id)
+    .single();
+  const base = fu ? Math.max(Date.now(), new Date(fu.due_at).getTime()) : Date.now();
+  const next = new Date(base + days * 86400000).toISOString();
+  const { error } = await supabase
+    .from("follow_ups")
+    .update({ due_at: next, reminded_at: null })
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidateAll(fu?.student_id ?? null, fu?.parent_id ?? null);
+  return { ok: true };
+}
+
 export async function completeFollowUp(
   id: string,
 ): Promise<{ ok: boolean; error?: string }> {

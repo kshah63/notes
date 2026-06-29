@@ -70,6 +70,18 @@ export async function GET(request: NextRequest) {
       continue;
     }
 
+    // Don't nag if they've logged something in the last 2 hours.
+    const since = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const { count: recent } = await supabase
+      .from("interactions")
+      .select("id", { count: "exact", head: true })
+      .eq("owner_id", s.owner_id)
+      .gte("created_at", since);
+    if ((recent ?? 0) > 0) {
+      skipped++;
+      continue;
+    }
+
     const body = `📝 MathVision check-in — anything from the last bit worth logging?\nTap to capture (type or 🎙 voice): ${link}`;
 
     for (const to of recipients) {
