@@ -8,7 +8,9 @@ import { CHANNELS, type Channel } from "./types";
 // Runs server-side from the inbound webhook; all DB access is owner-scoped via
 // the admin client (the webhook has no user session).
 
-const MODEL = process.env.WHATSAPP_AGENT_MODEL || "claude-opus-4-8";
+// Sonnet by default — fast enough to answer within Twilio's ~15s webhook
+// window while handling the tool set reliably. Override with WHATSAPP_AGENT_MODEL.
+const MODEL = process.env.WHATSAPP_AGENT_MODEL || "claude-sonnet-4-6";
 
 type Db = ReturnType<typeof createAdminClient>;
 

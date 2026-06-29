@@ -1,8 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import twilio from "twilio";
-import { waitUntil } from "@vercel/functions";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { parseRecipients, sendWhatsAppText } from "@/lib/whatsapp";
+import { parseRecipients } from "@/lib/whatsapp";
 import { normalizeToE164 } from "@/lib/phone";
 import { transcribeTwilioMedia, isDeepgramConfigured } from "@/lib/transcribe";
 import { runWhatsAppAgent, loadWaHistory, saveWaTurns } from "@/lib/wa-agent";
@@ -19,7 +18,23 @@ function supabaseConfigured() {
   );
 }
 
-// Browser-friendly health check: open this URL to see what's configured.
+function xmlEscape(s: string) {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// Reply synchronously via TwiML — Twilio sends this straight back to the user.
+function twiml(message?: string) {
+  const body = message ? `<Message>${xmlEscape(message)}</Message>` : "";
+  return new NextResponse(`<Response>${body}</Response>`, {
+    headers: { "Content-Type": "text/xml" },
+  });
+}
+
+// Browser-friendly health check.
 export async function GET() {
   const cfg = {
     route: "whatsapp-inbound: ok",
@@ -62,104 +77,69 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const from = String(form.get("From") ?? ""); // "whatsapp:+65..."
+  const from = String(form.get("From") ?? "");
   const body = String(form.get("Body") ?? "").trim();
   const numMedia = parseInt(String(form.get("NumMedia") ?? "0"), 10) || 0;
   const mediaUrl = String(form.get("MediaUrl0") ?? "");
   const mediaType = String(form.get("MediaContentType0") ?? "");
   const fromE164 = normalizeToE164(from.replace(/^whatsapp:/, ""));
 
-  const empty = new NextResponse("<Response></Response>", {
-    headers: { "Content-Type": "text/xml" },
-  });
-  if (!fromE164) return empty;
+  // Instant reachability test — confirms Twilio → app → reply works.
+  if (body.toLowerCase() === "ping") {
+    return twiml("pong ✅ — the bot is live and can reply.");
+  }
 
-  waitUntil(
-    handleMessage({
-      replyTo: fromE164,
-      body,
-      hasAudio: numMedia > 0 && mediaType.startsWith("audio"),
-      mediaUrl,
-      mediaType,
-    }),
-  );
-  return empty;
-}
-
-async function handleMessage(opts: {
-  replyTo: string;
-  body: string;
-  hasAudio: boolean;
-  mediaUrl: string;
-  mediaType: string;
-}) {
-  // If we can't even send (no Twilio creds), there's nothing we can do.
-  if (!isTwilioConfigured()) return;
-
-  const reply = (msg: string) => sendWhatsAppText(opts.replyTo, msg);
+  if (!fromE164) return twiml();
 
   try {
     if (!supabaseConfigured()) {
-      await reply(
-        "⚠️ Server setup incomplete: the database keys aren't set yet (SUPABASE_SERVICE_ROLE_KEY). Add them in Vercel and redeploy, then message me again.",
+      return twiml(
+        "⚠️ Server database keys aren't set (SUPABASE_SERVICE_ROLE_KEY). Add them in Vercel and redeploy.",
       );
-      return;
     }
 
     const db = createAdminClient();
-    const ownerId = await resolveOwner(db, opts.replyTo);
+    const ownerId = await resolveOwner(db, fromE164);
     if (!ownerId) {
-      await reply(
-        "I don't recognize this number yet. Open the app and log in (create the shared account if you haven't), then add this WhatsApp number under Settings — and message me again.",
+      return twiml(
+        "I don't recognise this number yet. In the app → Settings, add this WhatsApp number to your account, then message me again.",
       );
-      return;
     }
 
     if (!isAnthropicConfigured()) {
-      await reply(
-        "⚠️ The AI key isn't set on the server (ANTHROPIC_API_KEY). Add it in Vercel and redeploy.",
-      );
-      return;
+      return twiml("⚠️ The AI key isn't set (ANTHROPIC_API_KEY). Add it in Vercel and redeploy.");
     }
 
-    let text = opts.body;
-    if (!text && opts.hasAudio) {
+    let text = body;
+    if (!text && numMedia > 0 && mediaType.startsWith("audio")) {
       if (!isDeepgramConfigured()) {
-        await reply(
-          "I got a voice note but voice transcription isn't set up (needs DEEPGRAM_API_KEY). Send text for now and I'll log it.",
+        return twiml(
+          "I got a voice note but transcription isn't set up (DEEPGRAM_API_KEY). Send text for now and I'll log it.",
         );
-        return;
       }
-      text = await transcribeTwilioMedia(opts.mediaUrl, opts.mediaType);
-      if (!text) {
-        await reply("Couldn't make out that voice note — mind typing it?");
-        return;
-      }
+      text = await transcribeTwilioMedia(mediaUrl, mediaType);
+      if (!text) return twiml("Couldn't make out that voice note — mind typing it?");
     }
-    if (!text) return;
+    if (!text) return twiml();
 
-    const history = await loadWaHistory(db, ownerId, opts.replyTo);
+    const history = await loadWaHistory(db, ownerId, fromE164);
     const answer = await runWhatsAppAgent(ownerId, text, history);
-    await reply(answer);
-    await saveWaTurns(db, ownerId, opts.replyTo, [
+    await saveWaTurns(db, ownerId, fromE164, [
       { role: "user", content: text },
       { role: "assistant", content: answer },
     ]);
+    return twiml(answer);
   } catch (err) {
-    try {
-      await reply(
-        `Sorry — something went wrong. (${
-          err instanceof Error ? err.message : "unknown error"
-        })`,
-      );
-    } catch {
-      // give up quietly
-    }
+    return twiml(
+      `Sorry — something went wrong. (${
+        err instanceof Error ? err.message : "unknown error"
+      })`,
+    );
   }
 }
 
 // Match the sender to an owner via configured reminder numbers; fall back to the
-// single account if only one exists (the shared you+dad login).
+// first account if none match (works whether you have one shared login or two).
 async function resolveOwner(
   db: ReturnType<typeof createAdminClient>,
   fromE164: string,
@@ -173,12 +153,17 @@ async function resolveOwner(
   }[];
 
   for (const r of rows) {
-    const numbers = parseRecipients(r.reminder_whatsapp_number, null);
-    if (numbers.includes(fromE164)) return r.owner_id;
+    if (parseRecipients(r.reminder_whatsapp_number, null).includes(fromE164)) {
+      return r.owner_id;
+    }
   }
 
-  const { data: users } = await db.from("app_users").select("id").limit(2);
-  if ((users ?? []).length === 1) return (users as { id: string }[])[0].id;
+  const { data: users } = await db
+    .from("app_users")
+    .select("id, created_at")
+    .order("created_at", { ascending: true })
+    .limit(1);
+  if ((users ?? []).length >= 1) return (users as { id: string }[])[0].id;
 
   return null;
 }
