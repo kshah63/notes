@@ -76,9 +76,51 @@ const TOOLS: Anthropic.Tool[] = [
   },
 ];
 
+export interface WaTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+// Load the recent conversation thread for one sender (oldest-first), so the
+// agent has multi-turn context.
+export async function loadWaHistory(
+  db: Db,
+  ownerId: string,
+  fromNumber: string,
+  limit = 12,
+): Promise<WaTurn[]> {
+  const { data } = await db
+    .from("wa_messages")
+    .select("role, content")
+    .eq("owner_id", ownerId)
+    .eq("from_number", fromNumber)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  const rows = (data ?? []) as { role: "user" | "assistant"; content: string }[];
+  return rows.reverse();
+}
+
+export async function saveWaTurns(
+  db: Db,
+  ownerId: string,
+  fromNumber: string,
+  turns: WaTurn[],
+): Promise<void> {
+  if (turns.length === 0) return;
+  await db.from("wa_messages").insert(
+    turns.map((t) => ({
+      owner_id: ownerId,
+      from_number: fromNumber,
+      role: t.role,
+      content: t.content,
+    })),
+  );
+}
+
 export async function runWhatsAppAgent(
   ownerId: string,
   userText: string,
+  history: WaTurn[] = [],
 ): Promise<string> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return "AI isn't configured yet (missing API key).";
@@ -99,6 +141,7 @@ Behaviour:
 - Keep replies short and WhatsApp-friendly: a line or two, light use of • bullets and ✓. Confirm what you did. No markdown headers.`;
 
   const messages: Anthropic.MessageParam[] = [
+    ...history.map((h) => ({ role: h.role, content: h.content })),
     { role: "user", content: userText },
   ];
 

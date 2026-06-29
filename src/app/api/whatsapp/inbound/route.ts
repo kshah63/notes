@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { parseRecipients, sendWhatsAppText } from "@/lib/whatsapp";
 import { normalizeToE164 } from "@/lib/phone";
 import { transcribeTwilioMedia, isDeepgramConfigured } from "@/lib/transcribe";
-import { runWhatsAppAgent } from "@/lib/wa-agent";
+import { runWhatsAppAgent, loadWaHistory, saveWaTurns } from "@/lib/wa-agent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -83,8 +83,15 @@ async function handleMessage(opts: {
 
     if (!text) return;
 
-    const reply = await runWhatsAppAgent(opts.ownerId, text);
+    const db = createAdminClient();
+    const history = await loadWaHistory(db, opts.ownerId, opts.replyTo);
+    const reply = await runWhatsAppAgent(opts.ownerId, text, history);
     await sendWhatsAppText(opts.replyTo, reply);
+    // Persist this turn so the next message has context.
+    await saveWaTurns(db, opts.ownerId, opts.replyTo, [
+      { role: "user", content: text },
+      { role: "assistant", content: reply },
+    ]);
   } catch (err) {
     try {
       await sendWhatsAppText(
