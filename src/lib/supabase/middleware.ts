@@ -39,7 +39,8 @@ export async function updateSession(request: NextRequest) {
   const isPublic =
     path.startsWith("/login") ||
     path.startsWith("/auth") ||
-    path.startsWith("/api/cron");
+    path.startsWith("/api/cron") ||
+    path.startsWith("/api/whatsapp");
 
   if (!user && !isPublic) {
     const redirectUrl = request.nextUrl.clone();

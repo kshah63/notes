@@ -152,6 +152,29 @@ curl -H "Authorization: Bearer $CRON_SECRET" \
 
 ---
 
+## Two-way WhatsApp (chat to log, ask what's pending)
+
+WhatsApp has the same use cases as the app, driven by a Claude agent over the
+same database. Message the bot and it can: log a conversation (text or voice
+note), tell you what's on your plate, recap a student, and set follow-ups.
+
+Setup (Twilio sandbox — works for you + your dad immediately):
+1. Twilio Console → **Messaging → Try it out → WhatsApp sandbox → Sandbox
+   settings**. Set **"When a message comes in"** to
+   `https://<your-app>/api/whatsapp/inbound` (HTTP POST).
+2. Make sure `ANTHROPIC_API_KEY` and the `TWILIO_*` vars are set, plus your
+   numbers under Settings (or `WHATSAPP_TO_NUMBER`).
+3. Optional: `DEEPGRAM_API_KEY` to transcribe WhatsApp **voice notes** (text
+   works without it). `WHATSAPP_AGENT_MODEL` overrides the agent model
+   (defaults to Opus).
+4. Send a WhatsApp message to the sandbox number, e.g. *"Spoke to Aiden's mum,
+   he'll retake the test Friday"* or *"what do I need to do today?"*.
+
+> ⚠️ Compliance: Meta prohibits general-purpose AI chatbots on a **live**
+> WhatsApp Business number (Jan 2026). This conversational agent is intended for
+> the Twilio **sandbox** / internal use (you + your dad). Keep parent-facing
+> messaging to approved templates on any live number.
+
 ## Deploy to Vercel
 
 1. Push this repo to GitHub and import it in Vercel.

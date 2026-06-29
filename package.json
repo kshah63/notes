@@ -12,6 +12,7 @@
     "@anthropic-ai/sdk": "^0.104.1",
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.108.1",
+    "@vercel/functions": "^3.7.4",
     "libphonenumber-js": "^1.13.6",
     "next": "^15.5.19",
     "papaparse": "^5.5.3",
