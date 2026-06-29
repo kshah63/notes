@@ -81,6 +81,43 @@ export async function countStudents(): Promise<number> {
   return count ?? 0;
 }
 
+export interface OpenActionItem {
+  id: string;
+  text: string;
+  done: boolean;
+  student: { id: string; full_name: string } | null;
+  occurred_at: string | null;
+}
+
+// Every unchecked action item across all conversations (§ consolidated to-dos).
+export async function getOpenActionItems(): Promise<OpenActionItem[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("action_items")
+    .select(
+      "id, text, done, created_at, interaction:interactions!inner(occurred_at, student:students(id, full_name))",
+    )
+    .eq("done", false)
+    .order("created_at", { ascending: false })
+    .limit(300);
+
+  return ((data ?? []) as unknown as {
+    id: string;
+    text: string;
+    done: boolean;
+    interaction: {
+      occurred_at: string | null;
+      student: { id: string; full_name: string } | null;
+    } | null;
+  }[]).map((r) => ({
+    id: r.id,
+    text: r.text,
+    done: r.done,
+    student: r.interaction?.student ?? null,
+    occurred_at: r.interaction?.occurred_at ?? null,
+  }));
+}
+
 export async function getRecentInteractions(
   limit = 8,
 ): Promise<InteractionWithDetails[]> {

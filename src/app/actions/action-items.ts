@@ -16,6 +16,7 @@ export async function toggleActionItem(
     .eq("id", id);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/dashboard");
+  revalidatePath("/todos");
   revalidatePath("/students", "layout");
   return { ok: true };
 }
