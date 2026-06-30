@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import twilio from "twilio";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { parseRecipients } from "@/lib/whatsapp";
+import { parseRecipients, sendWhatsAppText } from "@/lib/whatsapp";
 import { normalizeToE164 } from "@/lib/phone";
 import { transcribeTwilioMedia, isDeepgramConfigured } from "@/lib/transcribe";
 import { runWhatsAppAgent, loadWaHistory, saveWaTurns } from "@/lib/wa-agent";
@@ -18,23 +18,14 @@ function supabaseConfigured() {
   );
 }
 
-function xmlEscape(s: string) {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-// Reply synchronously via TwiML — Twilio sends this straight back to the user.
-function twiml(message?: string) {
-  const body = message ? `<Message>${xmlEscape(message)}</Message>` : "";
-  return new NextResponse(`<Response>${body}</Response>`, {
+// Empty TwiML — we reply via the Messages API (no 15s webhook timeout), so the
+// HTTP response itself carries no message.
+function emptyTwiml() {
+  return new NextResponse("<Response></Response>", {
     headers: { "Content-Type": "text/xml" },
   });
 }
 
-// Browser-friendly health check.
 export async function GET() {
   const cfg = {
     route: "whatsapp-inbound: ok",
@@ -84,43 +75,52 @@ export async function POST(request: NextRequest) {
   const mediaType = String(form.get("MediaContentType0") ?? "");
   const fromE164 = normalizeToE164(from.replace(/^whatsapp:/, ""));
 
-  // Instant reachability test — confirms Twilio → app → reply works.
-  if (body.toLowerCase() === "ping") {
-    return twiml("pong ✅ — the bot is live and can reply.");
-  }
+  if (!fromE164) return emptyTwiml();
 
-  if (!fromE164) return twiml();
+  // Reply via the Messages API (proven to work — it's how the digest is sent).
+  // Awaited so the function stays alive until the reply is sent; the empty
+  // TwiML response is irrelevant to delivery.
+  const say = async (msg: string) => {
+    try {
+      await sendWhatsAppText(fromE164, msg);
+    } catch {
+      // nothing more we can do
+    }
+    return emptyTwiml();
+  };
+
+  if (body.toLowerCase() === "ping") {
+    return say("pong ✅ — the bot is live and can reply.");
+  }
 
   try {
     if (!supabaseConfigured()) {
-      return twiml(
+      return say(
         "⚠️ Server database keys aren't set (SUPABASE_SERVICE_ROLE_KEY). Add them in Vercel and redeploy.",
       );
     }
-
     const db = createAdminClient();
     const ownerId = await resolveOwner(db, fromE164);
     if (!ownerId) {
-      return twiml(
-        "I don't recognise this number yet. In the app → Settings, add this WhatsApp number to your account, then message me again.",
+      return say(
+        "I don't recognise this number yet. In the app → Settings, add this WhatsApp number, then message me again.",
       );
     }
-
     if (!isAnthropicConfigured()) {
-      return twiml("⚠️ The AI key isn't set (ANTHROPIC_API_KEY). Add it in Vercel and redeploy.");
+      return say("⚠️ The AI key isn't set (ANTHROPIC_API_KEY). Add it in Vercel and redeploy.");
     }
 
     let text = body;
     if (!text && numMedia > 0 && mediaType.startsWith("audio")) {
       if (!isDeepgramConfigured()) {
-        return twiml(
+        return say(
           "I got a voice note but transcription isn't set up (DEEPGRAM_API_KEY). Send text for now and I'll log it.",
         );
       }
       text = await transcribeTwilioMedia(mediaUrl, mediaType);
-      if (!text) return twiml("Couldn't make out that voice note — mind typing it?");
+      if (!text) return say("Couldn't make out that voice note — mind typing it?");
     }
-    if (!text) return twiml();
+    if (!text) return emptyTwiml();
 
     const history = await loadWaHistory(db, ownerId, fromE164);
     const answer = await runWhatsAppAgent(ownerId, text, history);
@@ -128,9 +128,9 @@ export async function POST(request: NextRequest) {
       { role: "user", content: text },
       { role: "assistant", content: answer },
     ]);
-    return twiml(answer);
+    return say(answer);
   } catch (err) {
-    return twiml(
+    return say(
       `Sorry — something went wrong. (${
         err instanceof Error ? err.message : "unknown error"
       })`,
@@ -138,8 +138,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Match the sender to an owner via configured reminder numbers; fall back to the
-// first account if none match (works whether you have one shared login or two).
 async function resolveOwner(
   db: ReturnType<typeof createAdminClient>,
   fromE164: string,
