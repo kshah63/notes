@@ -24,10 +24,15 @@ export function ImportWizard({
   fields,
   helpText,
   onImport,
+  importLabel = "Import",
 }: {
   fields: ImportField[];
   helpText?: string;
-  onImport: (records: Record<string, string>[]) => Promise<ImportResult>;
+  onImport: (
+    records: Record<string, string>[],
+    fileName?: string,
+  ) => Promise<ImportResult>;
+  importLabel?: string;
 }) {
   const router = useRouter();
   const [fileName, setFileName] = useState("");
@@ -36,6 +41,7 @@ export function ImportWizard({
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [parsing, setParsing] = useState(false);
   const [summary, setSummary] = useState<ImportSummary | null>(null);
+  const [notes, setNotes] = useState<{ message?: string; warnings?: string[] }>({});
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -71,6 +77,7 @@ export function ImportWizard({
   function run() {
     setError(null);
     setSummary(null);
+    setNotes({});
     const records = rows.map((row) => {
       const rec: Record<string, string> = {};
       for (const f of fields) {
@@ -80,12 +87,13 @@ export function ImportWizard({
       return rec;
     });
     startTransition(async () => {
-      const res = await onImport(records);
+      const res = await onImport(records, fileName);
       if (!res.ok) {
         setError(res.error ?? "Import failed.");
         return;
       }
       setSummary(res.summary ?? null);
+      setNotes({ message: res.message, warnings: res.warnings });
       router.refresh();
     });
   }
@@ -134,7 +142,9 @@ export function ImportWizard({
             ))}
           </div>
           <Button onClick={run} disabled={pending || !ready}>
-            {pending ? "Importing…" : `Import ${rows.length.toLocaleString()} rows`}
+            {pending
+              ? `${importLabel}ing…`
+              : `${importLabel} ${rows.length.toLocaleString()} rows`}
           </Button>
           {!ready && requiredKey && (
             <p className="text-xs text-amber-700">
@@ -153,10 +163,13 @@ export function ImportWizard({
       {summary && (
         <Card className="p-5">
           <h3 className="mb-3 text-sm font-semibold text-ink-700">
-            Import complete
+            {importLabel === "Import" ? "Import complete" : "Upload complete"}
           </h3>
           <div className="flex flex-wrap gap-2 text-sm">
             <Badge tone="green">{summary.created.toLocaleString()} created</Badge>
+            {(summary.updated ?? 0) > 0 && (
+              <Badge tone="accent">{summary.updated!.toLocaleString()} updated</Badge>
+            )}
             {summary.skippedExisting > 0 && (
               <Badge>
                 {summary.skippedExisting.toLocaleString()} already existed
@@ -167,6 +180,16 @@ export function ImportWizard({
             )}
             <Badge tone="accent">{summary.total.toLocaleString()} rows read</Badge>
           </div>
+          {notes.message && (
+            <p className="mt-3 text-sm font-medium text-ink-700">{notes.message}</p>
+          )}
+          {(notes.warnings ?? []).length > 0 && (
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-700">
+              {notes.warnings!.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          )}
         </Card>
       )}
     </div>

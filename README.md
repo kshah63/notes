@@ -37,8 +37,9 @@ tidy/extract, the student & parent timelines, in‑app follow-ups, Granola impor
 2. Open **SQL Editor** and run **every** file in `supabase/migrations/` in
    order — `0001_init.sql` first (tables, RLS, the signup trigger), then
    `0002_teachers_and_student_fields.sql` (School/Courses on students, the
-   teachers directory, and the teacher tag on conversations). Run each as its
-   own query.
+   teachers directory, and the teacher tag on conversations), through
+   `0007_teaching_confirmations.sql` (teacher WhatsApp numbers and the daily
+   confirmation tables). Run each as its own query.
 3. **Auth:** under **Authentication → Providers → Email**, keep email enabled.
    For a single-user internal tool the simplest setup is to turn **"Confirm
    email" off** so sign-up logs you straight in. (Leave it on if you'd rather
@@ -175,15 +176,63 @@ Setup (Twilio sandbox — works for you + your dad immediately):
 > the Twilio **sandbox** / internal use (you + your dad). Keep parent-facing
 > messaging to approved templates on any live number.
 
+## Daily teaching confirmations (6 pm SGT)
+
+Upload the day's teaching log and every teacher gets their student list on
+WhatsApp at 6 pm Singapore time, with 2-hourly nudges until they reply.
+
+**Flow:**
+
+1. **Upload** — **Daily confirmations** in the sidebar. Any `.xlsx`/`.csv` with
+   a teacher column and a student column works (columns are auto-mapped; a
+   "Students" cell may hold several comma-separated names). Teachers not yet in
+   the directory are created automatically; students are linked to the roster
+   when the name matches. Uploading again before 6 pm replaces the earlier
+   list, so teachers never get two messages for one day.
+2. **6 pm SGT dispatch** — the `teaching-confirmations` cron (declared in
+   `vercel.json`, runs every 15 min) sends each teacher their numbered student
+   list and asks them to confirm. Uploads after 6 pm go out the next day —
+   or hit **Send now** on the batch.
+3. **Replies** — teachers answer in plain language on WhatsApp:
+   - *"all correct"* → every student on their list is marked **confirmed**;
+   - *"missing: Caleb Lim"* → Caleb is **added** to their list (linked to the
+     roster when the name matches);
+   - *"I didn't teach Bella"* → Bella is marked **removed**.
+   Replies are parsed by the AI (`ANTHROPIC_API_KEY`); corrections imply the
+   rest of the list is fine. Ambiguous replies get a clarifying question, and
+   amendments also ping your own WhatsApp so you hear about discrepancies
+   immediately.
+4. **Nudges** — no reply after 2 h → an automatic reminder, up to 3 times
+   (only between 8 am and 10 pm SGT). Still nothing → the teacher shows as
+   **No response** on the page; a late reply is still processed for 48 h.
+5. **Record** — the **Daily confirmations** page shows each batch with
+   per-teacher status (awaiting / confirmed / amended / no response / not
+   sent) and exactly what was added or removed.
+
+**Teacher numbers:** each teacher needs a WhatsApp number — set it on the
+teacher's page, or include a phone column when importing teachers on **Roster
+import** (re-importing updates numbers for existing teachers). Teachers
+without a number show as **Not sent**; add the number and hit **Retry
+unreached**.
+
+> Sandbox caveat: on the Twilio sandbox every teacher must first join the
+> sandbox (`join <code>` to the sandbox number) — fine for testing with
+> yourself, not for real teachers. For a live sender, business-initiated
+> messages need an approved utility template: create one with three variables
+> ({{1}} teacher, {{2}} date, {{3}} student list) and set
+> `TWILIO_CONFIRMATION_TEMPLATE_SID`. Teacher replies then arrive inside the
+> 24 h customer-care window, so the bot's confirmations/nudge follow-ups work
+> as free-form messages.
+
 ## Deploy to Vercel
 
 1. Push this repo to GitHub and import it in Vercel.
 2. Add every environment variable from `.env.example` in the Vercel project
    settings (Production + Preview).
-3. `vercel.json` already declares the cron schedule
-   (`*/15 * * * *` → `/api/cron/whatsapp-reminders`). When `CRON_SECRET` is set,
-   Vercel Cron calls the endpoint with `Authorization: Bearer <CRON_SECRET>`,
-   which the route verifies.
+3. `vercel.json` already declares the cron schedules (follow-up reminders,
+   the daily digest, and the 6 pm teaching confirmations + nudges). When
+   `CRON_SECRET` is set, Vercel Cron calls each endpoint with
+   `Authorization: Bearer <CRON_SECRET>`, which the routes verify.
 4. Deploy. The same Supabase project backs all environments.
 
 ---

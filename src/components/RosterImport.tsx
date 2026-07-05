@@ -23,6 +23,7 @@ const teacherFields: ImportField[] = [
   { key: "full_name", label: "Name", required: true, aliases: ["fullname", "name", "teacher", "teachername", "employee"] },
   { key: "code", label: "Code (optional)", aliases: ["code", "id", "employeeid"] },
   { key: "position", label: "Position (optional)", aliases: ["position", "role", "title"] },
+  { key: "phone", label: "WhatsApp number (optional)", aliases: ["phone", "whatsapp", "mobile", "contact", "hp", "phonenumber"] },
 ];
 
 export function RosterImport() {
@@ -76,7 +77,7 @@ export function RosterImport() {
         <ImportWizard
           key="teachers"
           fields={teacherFields}
-          helpText="One row per teacher. Re-importing is safe — names that already exist are skipped."
+          helpText="One row per teacher. Re-importing is safe — names that already exist are skipped, though a WhatsApp number in the file still updates them (needed for daily confirmations)."
           onImport={(records) =>
             importTeachers(
               records.map(
@@ -84,6 +85,7 @@ export function RosterImport() {
                   full_name: r.full_name,
                   code: r.code,
                   position: r.position,
+                  phone: r.phone,
                 }),
               ),
             )

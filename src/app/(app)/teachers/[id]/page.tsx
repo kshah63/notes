@@ -1,9 +1,10 @@
 import { notFound } from "next/navigation";
 import { getTeacher, getTeacherTimeline } from "@/lib/queries";
 import type { Channel } from "@/lib/types";
-import { PageHeader, LinkButton, EmptyState } from "@/components/ui";
+import { PageHeader, LinkButton, EmptyState, Card, Field } from "@/components/ui";
 import { TimelineFilters } from "@/components/TimelineFilters";
 import { InteractionCard } from "@/components/InteractionCard";
+import { TeacherPhoneForm } from "@/components/TeacherPhoneForm";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +41,15 @@ export default async function TeacherPage({
           </LinkButton>
         }
       />
+
+      <Card className="mb-6 p-5">
+        <Field label="WhatsApp number">
+          <TeacherPhoneForm teacherId={teacher.id} phone={teacher.phone_e164} />
+        </Field>
+        <p className="mt-2 text-xs text-ink-500">
+          Daily teaching confirmations are sent to this number at 6 pm SGT.
+        </p>
+      </Card>
 
       <h2 className="mb-1 text-sm font-semibold text-ink-700">
         Conversations ({timeline.length})

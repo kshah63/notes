@@ -11,6 +11,7 @@ const items = [
   { href: "/attention", label: "Needs attention", icon: "!" },
   { href: "/students", label: "Students", icon: "☷" },
   { href: "/teachers", label: "Teachers", icon: "✦" },
+  { href: "/confirmations", label: "Daily confirmations", icon: "☑" },
   { href: "/granola", label: "Granola import", icon: "⤓" },
   { href: "/roster", label: "Roster import", icon: "⇪" },
   { href: "/settings", label: "Settings", icon: "⚙" },

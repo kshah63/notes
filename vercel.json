@@ -5,6 +5,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/teaching-confirmations",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/update-prompt",
       "schedule": "0 */2 * * *"
     },

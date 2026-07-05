@@ -11,12 +11,17 @@ export interface ImportSummary {
   skippedExisting: number;
   skippedBlank: number;
   total: number;
+  updated?: number;
 }
 
 export interface ImportResult {
   ok: boolean;
   summary?: ImportSummary;
   error?: string;
+  // Non-fatal notes shown after import (e.g. "2 teachers have no phone").
+  warnings?: string[];
+  // One-line status, e.g. "Scheduled for Sat 5 Jul, 6:00 pm".
+  message?: string;
 }
 
 const CHUNK = 500;
@@ -142,6 +147,7 @@ export interface TeacherImportRecord {
   full_name: string;
   code?: string | null;
   position?: string | null;
+  phone?: string | null;
 }
 
 export async function importTeachers(
@@ -155,17 +161,28 @@ export async function importTeachers(
     skippedExisting: 0,
     skippedBlank: 0,
     total: records.length,
+    updated: 0,
   };
 
   try {
-    const existing = await fetchAllKeys(supabase, "teachers", "full_name");
-    const seen = new Set<string>();
-    for (const r of existing) seen.add(norm(r.full_name as string));
+    const existing = await fetchAllKeys(
+      supabase,
+      "teachers",
+      "id, full_name, phone_e164",
+    );
+    const byName = new Map<string, { id: string; phone_e164: string | null }>();
+    for (const r of existing) {
+      byName.set(norm(r.full_name as string), {
+        id: r.id as string,
+        phone_e164: (r.phone_e164 as string | null) ?? null,
+      });
+    }
 
     const toInsert: {
       full_name: string;
       code: string | null;
       position: string | null;
+      phone_e164: string | null;
     }[] = [];
 
     for (const rec of records) {
@@ -175,15 +192,29 @@ export async function importTeachers(
         continue;
       }
       const key = norm(full_name);
-      if (seen.has(key)) {
-        summary.skippedExisting++;
+      const phone = normalizeToE164(rec.phone);
+      const prior = byName.get(key);
+      if (prior) {
+        // Existing teacher: a re-import can still fill in / correct the phone,
+        // which the daily WhatsApp confirmations need.
+        if (phone && phone !== prior.phone_e164) {
+          const { error } = await supabase
+            .from("teachers")
+            .update({ phone_e164: phone })
+            .eq("id", prior.id);
+          if (error) return { ok: false, error: error.message };
+          summary.updated = (summary.updated ?? 0) + 1;
+        } else {
+          summary.skippedExisting++;
+        }
         continue;
       }
-      seen.add(key);
+      byName.set(key, { id: "pending", phone_e164: phone });
       toInsert.push({
         full_name,
         code: rec.code?.trim() || null,
         position: rec.position?.trim() || null,
+        phone_e164: phone,
       });
     }
 

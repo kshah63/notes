@@ -7,6 +7,9 @@ import type {
   FollowUp,
   AppSettings,
   Channel,
+  ConfirmationBatch,
+  ConfirmationItem,
+  TeacherConfirmation,
 } from "./types";
 
 const INTERACTION_SELECT = `
@@ -277,6 +280,34 @@ export async function getSettings(): Promise<AppSettings | null> {
     .select("*")
     .maybeSingle();
   return (data as AppSettings) ?? null;
+}
+
+// Recent daily-confirmation batches with per-teacher progress, for the
+// /confirmations screen.
+export interface ConfirmationBatchView extends ConfirmationBatch {
+  confirmations: (TeacherConfirmation & {
+    teacher: Pick<Teacher, "id" | "full_name" | "phone_e164"> | null;
+  })[];
+  items: (ConfirmationItem & {
+    teacher: Pick<Teacher, "id" | "full_name" | "phone_e164"> | null;
+  })[];
+}
+
+export async function getConfirmationBatches(
+  limit = 8,
+): Promise<ConfirmationBatchView[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("confirmation_batches")
+    .select(
+      `*,
+       confirmations:teacher_confirmations(*, teacher:teachers(id, full_name, phone_e164)),
+       items:confirmation_items(*, teacher:teachers(id, full_name, phone_e164))`,
+    )
+    .neq("status", "cancelled")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  return (data as unknown as ConfirmationBatchView[]) ?? [];
 }
 
 // Global search across summaries, raw notes, and student/parent names (§8).

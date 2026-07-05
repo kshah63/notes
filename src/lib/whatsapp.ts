@@ -38,6 +38,25 @@ export async function sendWhatsAppText(
   return { sid: message.sid, to };
 }
 
+// Business-initiated message via an approved content template (live senders
+// outside the 24 h window). Used by the daily teaching-confirmation ask when
+// TWILIO_CONFIRMATION_TEMPLATE_SID is set.
+export async function sendWhatsAppContent(
+  toE164: string,
+  contentSid: string,
+  variables: Record<string, string>,
+): Promise<{ sid: string; to: string }> {
+  const { client, from } = twilioClient();
+  const to = toWhatsAppAddress(toE164);
+  const message = await client.messages.create({
+    from,
+    to,
+    contentSid,
+    contentVariables: JSON.stringify(variables),
+  });
+  return { sid: message.sid, to };
+}
+
 // Server-side only. Sends the "follow-up due" nudge to your own WhatsApp.
 // On the Twilio sandbox, free-form text works inside the 24h window. On a live
 // sender, set TWILIO_WHATSAPP_TEMPLATE_SID to an approved utility template

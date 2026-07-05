@@ -47,6 +47,7 @@ export interface Teacher {
   full_name: string;
   code: string | null;
   position: string | null;
+  phone_e164: string | null;
   created_at: string;
 }
 
@@ -109,6 +110,56 @@ export interface AppSettings {
   nudge_end_hour: number;
   created_at: string;
   updated_at: string;
+}
+
+// Daily teaching confirmations (0007). One batch per uploaded spreadsheet;
+// items are (teacher, student) pairings; teacher_confirmations track the
+// WhatsApp ask → nudge → response lifecycle per teacher.
+export type ConfirmationBatchStatus = "scheduled" | "dispatched" | "cancelled";
+export type ConfirmationItemStatus = "listed" | "confirmed" | "removed";
+export type TeacherConfirmationStatus =
+  | "sent"
+  | "confirmed"
+  | "amended"
+  | "no_response"
+  | "unreachable";
+
+export interface ConfirmationBatch {
+  id: string;
+  owner_id: string;
+  taught_on: string; // date (SGT)
+  source_filename: string | null;
+  status: ConfirmationBatchStatus;
+  dispatch_after: string;
+  dispatched_at: string | null;
+  created_at: string;
+}
+
+export interface ConfirmationItem {
+  id: string;
+  owner_id: string;
+  batch_id: string;
+  teacher_id: string;
+  student_id: string | null;
+  student_name: string;
+  source: "upload" | "teacher_added";
+  status: ConfirmationItemStatus;
+  created_at: string;
+}
+
+export interface TeacherConfirmation {
+  id: string;
+  owner_id: string;
+  batch_id: string;
+  teacher_id: string;
+  phone_e164: string | null;
+  status: TeacherConfirmationStatus;
+  sent_at: string | null;
+  nudge_count: number;
+  last_nudged_at: string | null;
+  responded_at: string | null;
+  response_text: string | null;
+  created_at: string;
 }
 
 // Shape returned by the AI tidy/extract step.

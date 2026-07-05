@@ -5,6 +5,11 @@ import { parseRecipients, sendWhatsAppText } from "@/lib/whatsapp";
 import { normalizeToE164 } from "@/lib/phone";
 import { transcribeTwilioMedia, isDeepgramConfigured } from "@/lib/transcribe";
 import { runWhatsAppAgent, loadWaHistory, saveWaTurns } from "@/lib/wa-agent";
+import {
+  findConfirmationForPhone,
+  handleConfirmationReply,
+  isTeacherPhone,
+} from "@/lib/confirmation-reply";
 import { isAnthropicConfigured, isTwilioConfigured } from "@/lib/env";
 
 export const runtime = "nodejs";
@@ -100,15 +105,6 @@ export async function POST(request: NextRequest) {
       );
     }
     const db = createAdminClient();
-    const ownerId = await resolveOwner(db, fromE164);
-    if (!ownerId) {
-      return say(
-        "I don't recognise this number yet. In the app → Settings, add this WhatsApp number, then message me again.",
-      );
-    }
-    if (!isAnthropicConfigured()) {
-      return say("⚠️ The AI key isn't set (ANTHROPIC_API_KEY). Add it in Vercel and redeploy.");
-    }
 
     let text = body;
     if (!text && numMedia > 0 && mediaType.startsWith("audio")) {
@@ -122,9 +118,46 @@ export async function POST(request: NextRequest) {
     }
     if (!text) return emptyTwiml();
 
-    const history = await loadWaHistory(db, ownerId, fromE164);
-    const answer = await runWhatsAppAgent(ownerId, text, history);
-    await saveWaTurns(db, ownerId, fromE164, [
+    // Teachers we're waiting on outrank everything else — their replies must
+    // land on the confirmation, not the owner's agent.
+    const awaiting = await findConfirmationForPhone(db, fromE164, {
+      awaitingOnly: true,
+    });
+    if (awaiting) {
+      return say(await handleConfirmationReply(db, awaiting, text));
+    }
+
+    const ownerId = await matchOwnerNumber(db, fromE164);
+    if (!ownerId) {
+      // Not the owner: teachers can still follow up on a recently-answered
+      // confirmation ("actually, also add Caleb"), and any other known
+      // teacher number gets a polite no-op instead of the owner's agent.
+      const recent = await findConfirmationForPhone(db, fromE164, {
+        awaitingOnly: false,
+      });
+      if (recent) {
+        return say(await handleConfirmationReply(db, recent, text));
+      }
+      if (await isTeacherPhone(db, fromE164)) {
+        return say(
+          "Nothing pending right now — I'll message you here when there's a class list to confirm. 👍",
+        );
+      }
+    }
+
+    const agentOwnerId = ownerId ?? (await fallbackFirstUser(db));
+    if (!agentOwnerId) {
+      return say(
+        "I don't recognise this number yet. In the app → Settings, add this WhatsApp number, then message me again.",
+      );
+    }
+    if (!isAnthropicConfigured()) {
+      return say("⚠️ The AI key isn't set (ANTHROPIC_API_KEY). Add it in Vercel and redeploy.");
+    }
+
+    const history = await loadWaHistory(db, agentOwnerId, fromE164);
+    const answer = await runWhatsAppAgent(agentOwnerId, text, history);
+    await saveWaTurns(db, agentOwnerId, fromE164, [
       { role: "user", content: text },
       { role: "assistant", content: answer },
     ]);
@@ -138,7 +171,8 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function resolveOwner(
+// The account whose Settings list this number as a reminder recipient.
+async function matchOwnerNumber(
   db: ReturnType<typeof createAdminClient>,
   fromE164: string,
 ): Promise<string | null> {
@@ -155,13 +189,19 @@ async function resolveOwner(
       return r.owner_id;
     }
   }
+  return null;
+}
 
+// Single-user convenience: an unrecognised (non-teacher) number falls through
+// to the first account, so the owner can chat before setting Settings up.
+async function fallbackFirstUser(
+  db: ReturnType<typeof createAdminClient>,
+): Promise<string | null> {
   const { data: users } = await db
     .from("app_users")
     .select("id, created_at")
     .order("created_at", { ascending: true })
     .limit(1);
   if ((users ?? []).length >= 1) return (users as { id: string }[])[0].id;
-
   return null;
 }

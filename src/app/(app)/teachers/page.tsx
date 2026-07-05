@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getTeachers } from "@/lib/queries";
-import { Card, PageHeader, EmptyState, LinkButton } from "@/components/ui";
+import { Badge, Card, PageHeader, EmptyState, LinkButton } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -48,9 +48,14 @@ export default async function TeachersPage({
                   href={`/teachers/${t.id}`}
                   className="flex items-center justify-between px-4 py-3 transition hover:bg-ink-50"
                 >
-                  <span className="font-medium text-ink-800">{t.full_name}</span>
+                  <span className="flex items-center gap-2">
+                    <span className="font-medium text-ink-800">{t.full_name}</span>
+                    {!t.phone_e164 && <Badge tone="amber">no WhatsApp</Badge>}
+                  </span>
                   <span className="text-sm text-ink-500">
-                    {[t.position, t.code].filter(Boolean).join(" · ")}
+                    {[t.phone_e164, t.position, t.code]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </span>
                 </Link>
               </li>
